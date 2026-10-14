@@ -2,11 +2,14 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/lbmesh/lbmesh-v2/internal/cli/catalog"
 	"github.com/lbmesh/lbmesh-v2/internal/cli/recipe"
 	"github.com/lbmesh/lbmesh-v2/internal/cli/tap"
+	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/dirs"
 )
 
@@ -20,9 +23,16 @@ containers via Docker or Podman, manages isolated scoped bridge networks,
 and exposes an embedded React + Carbon UI dashboard.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Ensure ~/.lbmesh directory tree exists before every command.
+		// Ensure ~/.lbmesh directory tree exists and state DB migrations run before every command.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return dirs.EnsureLocalDirs()
+			if err := dirs.EnsureLocalDirs(); err != nil {
+				return err
+			}
+			database, err := db.OpenDefaultAndMigrate()
+			if err != nil {
+				return fmt.Errorf("initializing state database: %w", err)
+			}
+			return database.Close()
 		},
 	}
 

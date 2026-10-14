@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lbmesh/lbmesh-v2/pkg/config"
+	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/dirs"
 )
 
@@ -22,6 +23,11 @@ if one does not already exist, and prepares the local state database.`,
 			if err := config.EnsureDefaults(); err != nil {
 				return fmt.Errorf("writing default config: %w", err)
 			}
+			database, err := db.OpenDefaultAndMigrate()
+			if err != nil {
+				return fmt.Errorf("initializing state database: %w", err)
+			}
+			_ = database.Close()
 			fmt.Println("lbmesh initialised successfully.")
 			return nil
 		},
