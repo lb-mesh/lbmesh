@@ -57,6 +57,40 @@ CREATE INDEX IF NOT EXISTS idx_port_allocations_service_id ON port_allocations(s
 CREATE INDEX IF NOT EXISTS idx_port_allocations_host_port ON port_allocations(host_port, protocol);
 `,
 	},
+	{
+		Version: 2,
+		Name:    "002_networks",
+		SQL: `
+-- Tracks every bridge network managed by lbmesh, keyed by the Docker/Podman
+-- network ID.  Rows are inserted when a network is created and deleted when it
+-- is torn down so that the table always reflects live state.
+CREATE TABLE IF NOT EXISTS networks (
+    id TEXT PRIMARY KEY,            -- Docker/Podman network ID
+    name TEXT NOT NULL UNIQUE,      -- e.g. "lbmesh-global", "lbmesh-project-myapp"
+    scope TEXT NOT NULL,            -- "system" | "project" | "custom"
+    driver TEXT NOT NULL DEFAULT 'bridge',
+    subnet TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Associates a running container with the network it joined.  Multiple rows
+-- can exist for the same network when several containers share it.
+CREATE TABLE IF NOT EXISTS network_containers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    network_id TEXT NOT NULL,
+    container_id TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    connected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (network_id) REFERENCES networks(id) ON DELETE CASCADE,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    UNIQUE (network_id, container_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_networks_scope ON networks(scope);
+CREATE INDEX IF NOT EXISTS idx_network_containers_network_id ON network_containers(network_id);
+CREATE INDEX IF NOT EXISTS idx_network_containers_service_id ON network_containers(service_id);
+`,
+	},
 }
 
 // Migrate executes all pending database migrations in sequential order.

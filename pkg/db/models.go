@@ -4,6 +4,25 @@ import (
 	"time"
 )
 
+// Network represents a bridge network managed by lbmesh.
+type Network struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Scope     string    `json:"scope"` // "system", "project", "custom"
+	Driver    string    `json:"driver"`
+	Subnet    string    `json:"subnet"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// NetworkContainer records a container's membership in a managed network.
+type NetworkContainer struct {
+	ID          int64     `json:"id"`
+	NetworkID   string    `json:"network_id"`
+	ContainerID string    `json:"container_id"`
+	ServiceID   string    `json:"service_id"`
+	ConnectedAt time.Time `json:"connected_at"`
+}
+
 // Project represents an orchestrator project workspace.
 type Project struct {
 	ID        string    `json:"id"`
