@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/lbmesh/lbmesh-v2/pkg/recipe"
 )
 
 // NewTapCmd returns the parent `tap` command with its sub-commands attached.
@@ -28,8 +30,14 @@ system-installed git binary so that your existing SSH/HTTPS credential
 helpers are respected automatically.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO(sub-task-7): git clone --depth 1 into ~/.lbmesh/taps/<org>/<repo>.
-			fmt.Printf("tap add: url=%q\n", args[0])
+			gitURL := args[0]
+
+			tapDir, err := recipe.TapAdd(gitURL)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("✓ Tap registered: %s\n", tapDir)
 			return nil
 		},
 	}
@@ -40,8 +48,21 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List currently connected git recipe taps",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO(sub-task-7): enumerate ~/.lbmesh/taps/ directories.
-			fmt.Println("tap list: no taps registered.")
+			entries, err := recipe.TapList()
+			if err != nil {
+				return err
+			}
+
+			if len(entries) == 0 {
+				fmt.Println("No taps registered. Use `lbmesh tap add <git-url>` to add one.")
+				return nil
+			}
+
+			fmt.Printf("%-50s  %s\n", "SLUG", "PATH")
+			fmt.Printf("%-50s  %s\n", "----", "----")
+			for _, e := range entries {
+				fmt.Printf("%-50s  %s\n", e.Slug, e.Path)
+			}
 			return nil
 		},
 	}
@@ -52,8 +73,25 @@ func newSyncCmd() *cobra.Command {
 		Use:   "sync",
 		Short: "Run git pull on all connected tap repositories",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO(sub-task-7): iterate taps and run git pull.
-			fmt.Println("tap sync: no taps to sync.")
+			entries, err := recipe.TapList()
+			if err != nil {
+				return err
+			}
+
+			if len(entries) == 0 {
+				fmt.Println("No taps registered. Use `lbmesh tap add <git-url>` to add one.")
+				return nil
+			}
+
+			fmt.Printf("Syncing %d tap(s)…\n", len(entries))
+			for _, e := range entries {
+				fmt.Printf("  pulling %s … ", e.Slug)
+				if err := recipe.TapSyncOne(e.Path); err != nil {
+					fmt.Printf("FAILED: %v\n", err)
+				} else {
+					fmt.Println("ok")
+				}
+			}
 			return nil
 		},
 	}
