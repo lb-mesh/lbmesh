@@ -1,0 +1,27 @@
+recipe: v1
+metadata:
+  name: postgresql
+  category: database
+  description: Relational PostgreSQL database service.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 512
+  recommended_memory_mb: 1024
+  min_cpus: 1
+container:
+  image: postgres:15-alpine
+  environment:
+    POSTGRES_PASSWORD: changeme
+    POSTGRES_DB: appdb
+    POSTGRES_USER: appuser
+  ports:
+    - container: 5432
+      host: 5432
+      protocol: tcp
+  volumes:
+    - /var/lib/postgresql/data
+outputs:
+  env:
+    DATABASE_URL: postgres://appuser:changeme@localhost:5432/appdb
+  instructions: PostgreSQL is running on localhost:5432.

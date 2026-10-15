@@ -1,0 +1,21 @@
+recipe: v1
+metadata:
+  name: nginx
+  category: webserver
+  description: Nginx HTTP server and reverse proxy.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 128
+  recommended_memory_mb: 256
+  min_cpus: 1
+container:
+  image: nginx:alpine
+  ports:
+    - container: 80
+      host: 8080
+      protocol: tcp
+  volumes:
+    - /usr/share/nginx/html
+outputs:
+  instructions: Nginx is running on http://localhost:8080.

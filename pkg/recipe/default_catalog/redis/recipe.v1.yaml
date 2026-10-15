@@ -1,0 +1,21 @@
+recipe: v1
+metadata:
+  name: redis
+  category: cache
+  description: In-memory Redis data store and cache.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 256
+  recommended_memory_mb: 512
+  min_cpus: 1
+container:
+  image: redis:7-alpine
+  ports:
+    - container: 6379
+      host: 6379
+      protocol: tcp
+outputs:
+  env:
+    REDIS_URL: redis://localhost:6379
+  instructions: Redis is running on localhost:6379.
