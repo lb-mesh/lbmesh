@@ -1,0 +1,57 @@
+recipe: v1
+metadata:
+  name: keycloak
+  category: auth
+  description: Keycloak identity provider in dev mode, set up for live theme development.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 512
+  recommended_memory_mb: 1024
+  min_cpus: 1
+container:
+  image: quay.io/keycloak/keycloak:26.8.1
+  # Dev mode with theme caching off, so edits under /opt/keycloak/themes show
+  # up on page reload without restarting Keycloak.
+  args:
+    - start-dev
+    - --spi-theme--static-max-age=-1
+    - --spi-theme--cache-themes=false
+    - --spi-theme--cache-templates=false
+  environment:
+    KC_BOOTSTRAP_ADMIN_USERNAME: admin
+    KC_BOOTSTRAP_ADMIN_PASSWORD: changeme
+  ports:
+    - container: 8080
+      host: 8180
+      protocol: tcp
+  volumes:
+    - /opt/keycloak/data
+    - /opt/keycloak/themes
+  files:
+    # Starter login theme extending the default keycloak.v2 theme.
+    - path: /opt/keycloak/themes/lbmesh/login/theme.properties
+      content: |
+        parent=keycloak.v2
+        import=common/keycloak
+        styles=css/styles.css css/lbmesh.css
+    - path: /opt/keycloak/themes/lbmesh/login/resources/css/lbmesh.css
+      content: |
+        /* lbmesh starter theme: edit and reload the login page to see changes. */
+        :root {
+          --lbmesh-accent: #0f62fe;
+        }
+
+        .pf-v5-c-button.pf-m-primary {
+          background-color: var(--lbmesh-accent);
+        }
+outputs:
+  env:
+    KEYCLOAK_URL: http://localhost:8180
+    KEYCLOAK_ADMIN_USER: admin
+    KEYCLOAK_ADMIN_PASSWORD: changeme
+  instructions: >-
+    Keycloak is running on http://localhost:8180 (admin console: admin /
+    changeme). Theme caching is off: pick the "lbmesh" login theme under Realm
+    settings > Themes, then edit files in the /opt/keycloak/themes volume and
+    reload the page.

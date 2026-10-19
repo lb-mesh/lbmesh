@@ -28,19 +28,23 @@ container:
   volumes:
     - /bitnami/openldap
   files:
-    # Runs once on first start. phpLDAPadmin only logs in as DNs that exist,
-    # so give the admin (root) DN its own entry.
+    # Runs once on first start, while slapd is stopped. phpLDAPadmin only logs
+    # in as DNs that exist, so give the admin (root) DN its own entry.
     - path: /docker-entrypoint-initdb.d/10-admin-entry.sh
       mode: "0755"
       content: |
         #!/bin/bash
-        set -euo pipefail
+        set -eo pipefail
+        . /opt/bitnami/scripts/libopenldap.sh
+        eval "$(ldap_env)"
+        ldap_start_bg
         ldapadd -x -H "ldapi:///" -D "$LDAP_ADMIN_DN" -w "$LDAP_ADMIN_PASSWORD" <<LDIF
         dn: $LDAP_ADMIN_DN
         objectClass: organizationalRole
         cn: $LDAP_ADMIN_USERNAME
         description: Directory administrator
         LDIF
+        ldap_stop
 outputs:
   env:
     LDAP_URL: ldap://localhost:1389
