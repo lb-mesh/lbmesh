@@ -25,3 +25,24 @@ outputs:
   env:
     DATABASE_URL: postgres://appuser:changeme@localhost:5432/appdb
   instructions: PostgreSQL is running on localhost:5432.
+addons:
+  - name: admin
+    description: pgAdmin web UI for PostgreSQL.
+    resources:
+      min_memory_mb: 256
+      recommended_memory_mb: 512
+      min_cpus: 1
+    container:
+      image: dpage/pgadmin4:8
+      environment:
+        # pgAdmin rejects reserved domains such as .local in the login email.
+        PGADMIN_DEFAULT_EMAIL: admin@example.com
+        PGADMIN_DEFAULT_PASSWORD: changeme
+      ports:
+        - container: 80
+          host: 8150
+          protocol: tcp
+      volumes:
+        - /var/lib/pgadmin
+    outputs:
+      instructions: pgAdmin is running on http://localhost:8150 (admin@example.com / changeme); register server host "postgresql".

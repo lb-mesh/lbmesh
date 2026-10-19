@@ -10,6 +10,7 @@ func newUpCmd() *cobra.Command {
 	var scope string
 	var autoResize bool
 	var envVars []string
+	var addons []string
 
 	cmd := &cobra.Command{
 		Use:   "up [recipe]",
@@ -23,8 +24,8 @@ network, allocating host ports, and starting all required containers.`,
 				recipeName = args[0]
 			}
 			// TODO(sub-task-2+): resolve recipe, probe socket, deploy containers.
-			fmt.Printf("up: recipe=%q scope=%s autoResize=%v env=%v\n",
-				recipeName, scope, autoResize, envVars)
+			fmt.Printf("up: recipe=%q scope=%s autoResize=%v env=%v with=%v\n",
+				recipeName, scope, autoResize, envVars, addons)
 			return nil
 		},
 	}
@@ -35,6 +36,8 @@ network, allocating host ports, and starting all required containers.`,
 		"automatically reconfigure Podman machine VM memory/CPU when resources are insufficient")
 	cmd.Flags().StringArrayVarP(&envVars, "env", "e", nil,
 		"override environment variables (KEY=VALUE), repeatable")
+	cmd.Flags().StringSliceVar(&addons, "with", nil,
+		"also deploy optional recipe addons, e.g. --with admin for a database web UI")
 
 	return cmd
 }

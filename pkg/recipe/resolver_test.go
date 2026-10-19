@@ -78,3 +78,25 @@ func TestValidateName(t *testing.T) {
 		}
 	}
 }
+
+// Resolve silently skips embedded recipes that fail validation, so check every
+// built-in template explicitly.
+func TestEmbeddedRecipesResolve(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+
+	names, err := EmbeddedNames()
+	if err != nil {
+		t.Fatalf("EmbeddedNames: %v", err)
+	}
+	for _, name := range names {
+		res, err := Resolve(name)
+		if err != nil {
+			t.Errorf("Resolve(%s): %v", name, err)
+			continue
+		}
+		if res.Source != SourceEmbedded || res.Recipe.Metadata.Name != name {
+			t.Errorf("Resolve(%s) = %s from %v; want embedded %s", name, res.Recipe.Metadata.Name, res.Source, name)
+		}
+	}
+}

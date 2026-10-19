@@ -172,6 +172,13 @@ func SummarizeCatalog() (string, error) {
 			}
 		}
 
+		if len(r.Addons) > 0 {
+			sb.WriteString("  Optional Addons (enable with --with <name>):\n")
+			for _, a := range r.Addons {
+				sb.WriteString(fmt.Sprintf("    * %s: %s (image: %s)\n", a.Name, a.Description, a.Container.Image))
+			}
+		}
+
 		sb.WriteString("\n")
 	}
 

@@ -51,6 +51,26 @@ type Recipe struct {
 
 	// Outputs describes generated .env variables and post-start instructions.
 	Outputs Outputs `yaml:"outputs,omitempty"`
+
+	// Addons are optional companion containers (such as an admin web UI) that
+	// are deployed only when requested, e.g. `lbmesh up mysql --with admin`.
+	Addons []Addon `yaml:"addons,omitempty"`
+}
+
+// Addon is an optional companion container deployed alongside the main
+// service on the same scoped network. The main container is reachable from an
+// addon by the recipe's metadata.name (e.g. "mysql").
+type Addon struct {
+	// Name identifies the addon within the recipe (e.g. "admin").
+	Name string `yaml:"name"`
+	// Description is a human-readable summary of the addon.
+	Description string `yaml:"description"`
+	// Resources declares host reservations required to run the addon.
+	Resources Resources `yaml:"resources"`
+	// Container describes the addon's container.
+	Container Container `yaml:"container"`
+	// Outputs describes .env variables and instructions emitted when enabled.
+	Outputs Outputs `yaml:"outputs,omitempty"`
 }
 
 // Metadata identifies a recipe.
@@ -167,18 +187,57 @@ func (r *Recipe) Validate() error {
 		return fmt.Errorf("resources.min_cpus must not be negative")
 	}
 
-	for i, p := range r.Container.Ports {
-		if p.Container <= 0 {
-			return fmt.Errorf("container.ports[%d].container must be a positive port number", i)
+	if err := validatePorts("container", r.Container.Ports); err != nil {
+		return err
+	}
+
+	seen := make(map[string]struct{}, len(r.Addons))
+	for i, a := range r.Addons {
+		field := fmt.Sprintf("addons[%d]", i)
+		if err := ValidateName(a.Name); err != nil {
+			return fmt.Errorf("%s.name: %w", field, err)
 		}
-		if p.Host <= 0 {
-			return fmt.Errorf("container.ports[%d].host must be a positive port number", i)
+		if _, dup := seen[a.Name]; dup {
+			return fmt.Errorf("%s.name %q is declared more than once", field, a.Name)
 		}
-		if p.Protocol != "" && p.Protocol != "tcp" && p.Protocol != "udp" {
-			return fmt.Errorf("container.ports[%d].protocol must be tcp or udp", i)
+		seen[a.Name] = struct{}{}
+		if a.Container.Image == "" {
+			return fmt.Errorf("%s.container.image is required", field)
+		}
+		if a.Resources.MinMemoryMB < 0 || a.Resources.RecommendedMemoryMB < 0 || a.Resources.MinCPUs < 0 {
+			return fmt.Errorf("%s.resources must not be negative", field)
+		}
+		if err := validatePorts(field+".container", a.Container.Ports); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// Addon returns the addon called name, or nil when the recipe declares none.
+func (r *Recipe) Addon(name string) *Addon {
+	for i := range r.Addons {
+		if r.Addons[i].Name == name {
+			return &r.Addons[i]
+		}
+	}
+	return nil
+}
+
+// validatePorts checks port bindings, prefixing errors with field.
+func validatePorts(field string, ports []PortBinding) error {
+	for i, p := range ports {
+		if p.Container <= 0 {
+			return fmt.Errorf("%s.ports[%d].container must be a positive port number", field, i)
+		}
+		if p.Host <= 0 {
+			return fmt.Errorf("%s.ports[%d].host must be a positive port number", field, i)
+		}
+		if p.Protocol != "" && p.Protocol != "tcp" && p.Protocol != "udp" {
+			return fmt.Errorf("%s.ports[%d].protocol must be tcp or udp", field, i)
+		}
+	}
 	return nil
 }
 

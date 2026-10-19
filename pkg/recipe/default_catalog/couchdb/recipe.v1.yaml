@@ -1,0 +1,26 @@
+recipe: v1
+metadata:
+  name: couchdb
+  category: database
+  description: Apache CouchDB document database (Cloudant-compatible API).
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 128
+  recommended_memory_mb: 384
+  min_cpus: 1
+container:
+  image: couchdb:3.3
+  environment:
+    COUCHDB_USER: admin
+    COUCHDB_PASSWORD: changeme
+  ports:
+    - container: 5984
+      host: 5984
+      protocol: tcp
+  volumes:
+    - /opt/couchdb/data
+outputs:
+  env:
+    COUCHDB_URL: http://admin:changeme@localhost:5984
+  instructions: CouchDB is running on http://localhost:5984 (Fauxton admin UI at /_utils).

@@ -19,3 +19,20 @@ outputs:
   env:
     REDIS_URL: redis://localhost:6379
   instructions: Redis is running on localhost:6379.
+addons:
+  - name: admin
+    description: Redis Commander web UI for Redis.
+    resources:
+      min_memory_mb: 64
+      recommended_memory_mb: 128
+      min_cpus: 1
+    container:
+      image: rediscommander/redis-commander:latest
+      environment:
+        REDIS_HOSTS: local:redis:6379
+      ports:
+        - container: 8081
+          host: 8140
+          protocol: tcp
+    outputs:
+      instructions: Redis Commander is running on http://localhost:8140.
