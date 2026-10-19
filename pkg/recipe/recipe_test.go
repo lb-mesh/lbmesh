@@ -42,3 +42,28 @@ func TestValidate_Addons(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_Files(t *testing.T) {
+	ok := validRecipe()
+	ok.Container.Files = []File{{Path: "/etc/app/app.conf", Content: "x", Mode: "0600"}}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	bad := map[string][]File{
+		"relative":  {{Path: "etc/app.conf"}},
+		"unclean":   {{Path: "/etc/../app.conf"}},
+		"root":      {{Path: "/"}},
+		"duplicate": {{Path: "/a"}, {Path: "/a"}},
+		"mode":      {{Path: "/a", Mode: "rw-r--r--"}},
+		"too wide":  {{Path: "/a", Mode: "07777"}},
+		"too big":   {{Path: "/a", Content: strings.Repeat("x", maxFileBytes+1)}},
+	}
+	for name, files := range bad {
+		r := validRecipe()
+		r.Addons[0].Container.Files = files
+		if err := r.Validate(); err == nil {
+			t.Errorf("%s: Validate() = nil, want error", name)
+		}
+	}
+}

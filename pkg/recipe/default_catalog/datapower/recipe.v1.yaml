@@ -1,0 +1,78 @@
+recipe: v1
+metadata:
+  name: datapower
+  category: gateway
+  description: IBM DataPower Gateway (developer-limited edition) with WebGUI, REST and XML management enabled.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 2048
+  recommended_memory_mb: 4096
+  min_cpus: 2
+container:
+  image: icr.io/cpopen/datapower/datapower-limited:10.6.0.11
+  environment:
+    DATAPOWER_ACCEPT_LICENSE: "true"
+    # Interactive mode exposes the DataPower CLI on the container's console.
+    DATAPOWER_INTERACTIVE: "true"
+    DATAPOWER_WORKER_THREADS: "2"
+  ports:
+    - container: 9090
+      host: 9090
+      protocol: tcp
+    - container: 5554
+      host: 5554
+      protocol: tcp
+    - container: 5550
+      host: 5550
+      protocol: tcp
+    - container: 9022
+      host: 9022
+      protocol: tcp
+    - container: 8000
+      host: 8000
+      protocol: tcp
+  volumes:
+    - /opt/ibm/datapower/drouter/config
+    - /opt/ibm/datapower/drouter/local
+    - /opt/ibm/datapower/root/secure/usrcerts
+  files:
+    # Starter config: management interfaces are off in a fresh container.
+    # Seeded once; DataPower rewrites this file when you save configuration.
+    - path: /opt/ibm/datapower/drouter/config/auto-startup.cfg
+      mode: "0666"
+      content: |
+        top; configure terminal;
+
+        ssh "0.0.0.0" "9022"
+
+        xml-mgmt
+          admin-state "enabled"
+          local-address "0.0.0.0" "5550"
+          ssl-config-type server
+        exit
+
+        rest-mgmt
+          admin-state "enabled"
+          local-address "0.0.0.0" "5554"
+          ssl-config-type server
+        exit
+
+        web-mgmt
+          admin-state "enabled"
+          local-address "0.0.0.0" "9090"
+          save-config-overwrite
+          idle-timeout 600
+          ssl-config-type server
+        exit
+outputs:
+  env:
+    DATAPOWER_REST_URL: https://localhost:5554/mgmt
+    DATAPOWER_XML_MGMT_URL: https://localhost:5550
+    DATAPOWER_GATEWAY_URL: http://localhost:8000
+  instructions: >-
+    DataPower is starting (allow a few minutes). WebGUI on https://localhost:9090,
+    REST management on https://localhost:5554, XML management on
+    https://localhost:5550, SSH on port 9022; log in as admin / admin and set a
+    new password when prompted. Port 8000 is free for a service you define. The
+    image is amd64-only and runs under emulation on Apple Silicon.

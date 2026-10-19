@@ -7,6 +7,8 @@ package recipe
 import (
 	"fmt"
 	"os"
+	"path"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,6 +26,7 @@ var ValidCategories = map[string]struct{}{
 	"webserver":     {},
 	"messaging":     {},
 	"observability": {},
+	"gateway":       {},
 }
 
 // ValidScopes is the set of recognized execution scopes.
@@ -113,7 +116,24 @@ type Container struct {
 	Ports []PortBinding `yaml:"ports,omitempty"`
 	// Volumes lists container volume mount paths.
 	Volumes []string `yaml:"volumes,omitempty"`
+	// Files are config files seeded into the container before its first start.
+	Files []File `yaml:"files,omitempty"`
 }
+
+// File is a config file seeded into a container. When Path lies inside a
+// declared volume, an existing file there is left untouched so that changes
+// the service saved on a previous run survive.
+type File struct {
+	// Path is the absolute path of the file inside the container.
+	Path string `yaml:"path"`
+	// Content is the file body.
+	Content string `yaml:"content"`
+	// Mode is the octal permission string (e.g. "0644"); empty means 0644.
+	Mode string `yaml:"mode,omitempty"`
+}
+
+// maxFileBytes caps inline file content so recipes stay small.
+const maxFileBytes = 256 << 10
 
 // PortBinding maps a container port to a host port.
 type PortBinding struct {
@@ -192,6 +212,9 @@ func (r *Recipe) Validate() error {
 	if err := validatePorts("container", r.Container.Ports); err != nil {
 		return err
 	}
+	if err := validateFiles("container", r.Container.Files); err != nil {
+		return err
+	}
 
 	seen := make(map[string]struct{}, len(r.Addons))
 	for i, a := range r.Addons {
@@ -212,6 +235,9 @@ func (r *Recipe) Validate() error {
 		if err := validatePorts(field+".container", a.Container.Ports); err != nil {
 			return err
 		}
+		if err := validateFiles(field+".container", a.Container.Files); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -222,6 +248,29 @@ func (r *Recipe) Addon(name string) *Addon {
 	for i := range r.Addons {
 		if r.Addons[i].Name == name {
 			return &r.Addons[i]
+		}
+	}
+	return nil
+}
+
+// validateFiles checks seeded config files, prefixing errors with field.
+func validateFiles(field string, files []File) error {
+	seen := make(map[string]struct{}, len(files))
+	for i, f := range files {
+		if !path.IsAbs(f.Path) || path.Clean(f.Path) != f.Path || f.Path == "/" {
+			return fmt.Errorf("%s.files[%d].path %q must be a clean absolute file path", field, i, f.Path)
+		}
+		if _, dup := seen[f.Path]; dup {
+			return fmt.Errorf("%s.files[%d].path %q is declared more than once", field, i, f.Path)
+		}
+		seen[f.Path] = struct{}{}
+		if len(f.Content) > maxFileBytes {
+			return fmt.Errorf("%s.files[%d].content exceeds %d bytes", field, i, maxFileBytes)
+		}
+		if f.Mode != "" {
+			if m, err := strconv.ParseUint(f.Mode, 8, 32); err != nil || m > 0o777 {
+				return fmt.Errorf("%s.files[%d].mode %q must be an octal permission such as \"0644\"", field, i, f.Mode)
+			}
 		}
 	}
 	return nil
