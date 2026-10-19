@@ -154,12 +154,13 @@ CREATE TABLE IF NOT EXISTS telemetry_events (
   - Secure `/admin/dashboard` endpoint presenting key telemetry metrics.
 - **Todo List**:
   1. [ ] Write SQL aggregation helpers inside the microserver:
-     - **Unique Nodes / Total Activations**: Count of distinct `client_id`s with command `init`.
+     - **Installation Activations (Downloads) Timeline**: Group count of distinct `client_id`s with command `init` by day, week, or month. This compiles a timeline chart visualizing whether usage growth is trending **up or down**.
+     - **Recipe Category Popularity**: Count and group events by `recipe_category` (e.g., `database`, `proxy`, `ai-agent`, `backend`) to output a pie chart displaying the most popular service categories.
      - **Active Node Demographics**: OS (macOS vs Linux vs Windows) and Architecture (ARM64 vs AMD64) distributions.
-     - **Hourly Command Frequency**: Timelines for commands (`up`, `down`, `ask`).
+     - **Hourly Command Frequency**: Timelines for commands (`up`, `down`, `ask`, `init`).
      - **Failure Rates**: Frequency of OOM or Docker connection failures.
-     - **Top Stacks**: Most frequently deployed recipes (e.g. `postgres`, `redis`).
-  2. [ ] Implement a lightweight dashboard template using server-rendered charts (using Chart.js or Tailwind CDN layout) or compile a simple React Carbon SPA to run at `/admin/dashboard` behind standard Basic Authentication.
+     - **Top Stacks**: Most frequently deployed individual recipes (e.g., `postgres`, `redis`).
+  2. [ ] Implement an interactive dashboard interface: Compile a React Carbon SPA to run at `/admin/dashboard` behind standard Basic Authentication, utilizing Chart.js / ECharts to render responsive lines, bars, and pie charts.
 
 ---
 
@@ -255,3 +256,80 @@ server {
     }
 }
 ```
+
+---
+
+## Part 4: AI Insights Chat Assistant & LLM Gateway Config
+
+To enable administrators to query the telemetry dataset conversationally directly from the dashboard, the interface will feature a **collapsible AI Chat Sidebar**.
+
+```
+                           AI Chat Sidebar Pipeline
+                           
+  Admin Dashboard             Go Telemetry Server             LiteLLM Proxy
+ [ "Is usage up or down?" ] ──► [ Query DB Summaries ] ──► [ System Prompt + Data ]
+                                                                   │
+                                                                   ▼
+ [ Answer Displayed ]  ◄──────── [ Stream JSON Answer ]  ◄─────────┘
+```
+
+### 1. Architectural Highlights
+- **Conversational Analytics**: Administrators can ask questions like *"How many new nodes activated on macOS this week?"*, *"Is our usage trending up or down compared to last month?"*, or *"Show me the error trends for Postgres"*.
+- **Local DB Metadata Bridging**: The Go server intercepts the question, executes lightweight, optimized SQL aggregations (e.g., weekly download rates, category rankings), constructs a compact YAML-formatted data context summary, and passes this context as system background to the LLM.
+- **Safe Execution Guard**: This is a **read-only database bridge**. The LLM never writes queries directly and has no write-access. The Go server acts as the strict data compiler, preventing SQL injection or OOM-inducing queries on the database.
+
+### 2. Server-Side LLM Configuration (`server-config.yaml`)
+To connect the server backend to **LiteLLM** (or local Ollama / Cloud APIs), the microserver supports custom LLM routing configurations in its local directory:
+
+```yaml
+server:
+  port: 8081
+  db_connection: "root:secret@tcp(127.0.0.1:3306)/telemetry_db"
+
+ai:
+  provider: "litellm"                 # ollama | openai | anthropic | litellm
+  base_url: "http://localhost:4000"   # Custom LiteLLM proxy base URL
+  api_key: "sk-litellm-admin-secret"  # Virtual key to access the gateway
+  model: "gemini/gemini-1.5-pro"      # Target model tag/mapping
+```
+
+### 3. Database to LLM Prompt Compilation Logic
+When an administrator posts a question to the backend endpoint `/api/admin/chat`:
+
+1.  **Go Handler Invocation**: The server-side Go handler executes pre-defined SQL aggregation metrics (pulling total downloads, daily trends, and category ratios).
+2.  **Context Assembly**: It compiles the results into a compact structured context:
+    ```yaml
+    ---
+    DATA_SUMMARY_CONTEXT:
+      current_time: "2023-11-23T15:04:05Z"
+      total_registered_nodes: 1420
+      unique_activations_last_7_days: 145
+      unique_activations_prev_7_days: 110 # trending up by 31.8%
+      popular_categories:
+        - category: "database" (450 events)
+        - category: "ai-agent" (320 events)
+        - category: "proxy" (180 events)
+      top_recipes_last_30_days:
+        - postgres (410 deployments)
+        - redis (280 deployments)
+        - python-llm (195 deployments)
+      platform_ratio:
+        - darwin-arm64: 65%
+        - linux-amd64: 25%
+        - windows-amd64: 10%
+    ```
+3.  **Prompt Dispatch**: The Go server merges this data block with the user's question, dispatching it to the LiteLLM gateway:
+    ```
+    System: You are an expert telemetry analytics assistant for LBMesh. You are provided with the following live, aggregated database summaries. Answer the user's question accurately, directly, and metrics-first based strictly on the provided data context.
+    
+    Data Context:
+    [DATA_SUMMARY_CONTEXT]
+    
+    User: Is our usage going up or down, and what category is driving it?
+    ```
+4.  **Streaming Response**: The server forwards LiteLLM's response stream directly to the admin's chat sidebar using standard chunked HTTP streaming.
+
+### 4. UI Layout (Carbon Chat Sidebar Widget)
+*   **Design**: A slide-out, toggleable panel (`Panel` or `SidePanel` in Carbon guidelines) on the right side of the admin dashboard.
+*   **Chat Input**: Includes a text area supporting pressing `Enter` to submit.
+*   **Visual Indicators**: Renders message bubbles (distinctly styling the admin's inquiries and the LLM's data-driven metrics answers) with inline markdown support.
