@@ -190,3 +190,37 @@ func TestAllocateMany(t *testing.T) {
 		seen[r.AllocatedHostPort] = true
 	}
 }
+
+// TestAllocate_UDP verifies that UDP ports can be allocated; the probe used to
+// call net.Listen("udp"), which always errors, so every UDP port looked taken.
+func TestAllocate_UDP(t *testing.T) {
+	database := openTestDB(t)
+	if _, err := database.Exec(
+		`INSERT INTO services (id, name, scope, container_id, image, status) VALUES (?,?,?,?,?,?)`,
+		"svc-udp", "dns", "project", "", "coredns", "created",
+	); err != nil {
+		t.Fatalf("inserting service: %v", err)
+	}
+
+	res, err := ports.New(database).Allocate(ports.Request{
+		ServiceID: "svc-udp", ContainerPort: 53, PreferredHostPort: 25353, Protocol: "udp",
+	})
+	if err != nil {
+		t.Fatalf("Allocate udp: %v", err)
+	}
+	if res.Protocol != "udp" || res.AllocatedHostPort < 25353 {
+		t.Fatalf("unexpected result %+v", res)
+	}
+}
+
+// TestAllocate_UnknownServiceErrors verifies that a failing insert (here a
+// foreign-key violation) is reported instead of being retried as a port clash.
+func TestAllocate_UnknownServiceErrors(t *testing.T) {
+	database := openTestDB(t)
+	_, err := ports.New(database).Allocate(ports.Request{
+		ServiceID: "missing", ContainerPort: 80, PreferredHostPort: 25400,
+	})
+	if err == nil {
+		t.Fatal("expected an error for a service that does not exist")
+	}
+}

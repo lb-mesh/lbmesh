@@ -97,6 +97,16 @@ func CatalogSync(indexURL string, progressFn func(msg string)) error {
 		if entry.RecipeURL == "" {
 			continue
 		}
+		// Category and name come from the remote index and become path
+		// components; refuse anything that could escape the catalog tree.
+		if err := ValidateName(entry.Category); err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("    %q: invalid category: %v", entry.Category, err))
+			continue
+		}
+		if err := ValidateName(entry.Name); err != nil {
+			fetchErrs = append(fetchErrs, fmt.Sprintf("    %q: %v", entry.Name, err))
+			continue
+		}
 
 		destDir := filepath.Join(catalogDir, "templates", entry.Category, entry.Name)
 		destPath := filepath.Join(destDir, "recipe.v1.yaml")

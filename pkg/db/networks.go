@@ -14,6 +14,9 @@ import (
 // with the same ID already exists (e.g. after a binary restart where the
 // daemon still owns the network).
 func UpsertNetwork(db *sql.DB, n Network) error {
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = time.Now().UTC()
+	}
 	_, err := db.Exec(
 		`INSERT INTO networks (id, name, scope, driver, subnet, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
@@ -35,7 +38,7 @@ func UpsertNetwork(db *sql.DB, n Network) error {
 // Returns sql.ErrNoRows when no matching record is found.
 func GetNetwork(db *sql.DB, idOrName string) (Network, error) {
 	var n Network
-	var createdAt string
+	var createdAt any
 
 	row := db.QueryRow(
 		`SELECT id, name, scope, driver, subnet, created_at
@@ -49,11 +52,7 @@ func GetNetwork(db *sql.DB, idOrName string) (Network, error) {
 		return Network{}, err
 	}
 
-	n.CreatedAt, err = time.Parse("2006-01-02 15:04:05", createdAt)
-	if err != nil {
-		// Non-fatal: use zero time rather than failing on timestamp parsing.
-		n.CreatedAt = time.Time{}
-	}
+	n.CreatedAt = ParseTimestamp(createdAt)
 	return n, nil
 }
 

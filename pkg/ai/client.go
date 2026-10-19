@@ -34,7 +34,7 @@ const (
 	DefaultOpenAIModel = "gpt-4o"
 
 	DefaultAnthropicURL     = "https://api.anthropic.com/v1"
-	DefaultAnthropicModel   = "claude-3-5-sonnet-20241022"
+	DefaultAnthropicModel   = "claude-sonnet-5-5"
 	AnthropicVersionHeader  = "2023-06-01"
 
 	DefaultLiteLLMURL   = "http://localhost:4000/v1"

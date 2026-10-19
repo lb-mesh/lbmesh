@@ -126,7 +126,8 @@ func Save(cfg *Config) error {
 
 	// Write to a temp file then rename for atomic replacement.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// 0600: the file can hold LLM provider API keys.
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("writing temp config %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

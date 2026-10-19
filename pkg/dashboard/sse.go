@@ -3,17 +3,19 @@ package dashboard
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // handleLogsSSE streams the stdout and stderr of a container to the client
 // using the Server-Sent Events (SSE) protocol.
 //
-// URL pattern: GET /api/logs/{containerID}
+// URL patterns: GET /api/logs/{containerID}  or  GET /api/logs?container={id}
 //
 // Each log line is emitted as an SSE event:
 //
@@ -35,25 +37,32 @@ func (s *Server) handleLogsSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract container ID from path: /api/logs/{containerID}
-	containerID := strings.TrimPrefix(r.URL.Path, "/api/logs/")
-	containerID = strings.TrimSuffix(containerID, "/")
+	containerID := logsContainerID(r)
 	if containerID == "" {
 		errJSON(w, http.StatusBadRequest, "missing container id")
 		return
 	}
 
-	// Validate that the container exists before opening the log stream.
-	_, err := s.cfg.DockerClient.ContainerInspect(r.Context(), containerID)
+	// Validate that the container exists before opening the log stream, and
+	// learn whether it uses a TTY, which decides the log stream framing.
+	inspect, err := s.cfg.DockerClient.ContainerInspect(r.Context(), containerID)
 	if err != nil {
 		errJSON(w, http.StatusNotFound, "container not found: "+containerID)
 		return
 	}
+	tty := inspect.Config != nil && inspect.Config.Tty
 
 	// Honour the "tail" query parameter (default: last 100 lines).
 	tail := r.URL.Query().Get("tail")
 	if tail == "" {
 		tail = "100"
+	}
+
+	// Flush is required for SSE; check before committing to a 200 response.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		errJSON(w, http.StatusInternalServerError, "streaming not supported")
+		return
 	}
 
 	// Set SSE headers before writing the body.
@@ -62,15 +71,6 @@ func (s *Server) handleLogsSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering in proxied deployments
 	w.WriteHeader(http.StatusOK)
-
-	// Flush is required for SSE; assert the ResponseWriter supports it.
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		// ResponseWriter does not support flushing — fall back to a single
-		// batch response so the connection does not hang indefinitely.
-		_, _ = fmt.Fprint(w, "event: error\ndata: streaming not supported\n\n")
-		return
-	}
 
 	// Open the Docker log stream: stdout + stderr, follow=true (live tail).
 	logOpts := container.LogsOptions{
@@ -88,32 +88,9 @@ func (s *Server) handleLogsSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	defer logReader.Close()
 
-	// Docker multiplexes stdout/stderr in an 8-byte framed format when the
-	// container is NOT using a TTY.  We strip the frame header (first 8 bytes
-	// per chunk) and forward the payload as plain text.
-	//
-	// Frame header layout (https://docs.docker.com/engine/api/v1.46/#tag/Container/operation/ContainerAttach):
-	//   [0]    stream type: 1=stdout, 2=stderr
-	//   [1-3]  padding (zero)
-	//   [4-7]  payload size (big-endian uint32)
-	//
-	// We read 8-byte headers and then read exactly payload-size bytes each
-	// iteration, then forward the content as an SSE event.
 	ctx := r.Context()
-	header := make([]byte, 8)
-	scanner := bufio.NewScanner(logReader)
-
-	// Use a simple line-based scan.  Docker's multiplexed stream embeds the
-	// 8-byte header before each chunk; bufio.Scanner will include those bytes
-	// in the first line of each chunk.  We strip any non-printable prefix
-	// chars (the header bytes) before forwarding.
-	//
-	// This approach is robust for both TTY and non-TTY containers: for TTY
-	// containers the stream is raw text; for non-TTY containers we strip the
-	// 8-byte frame header if present.
-	_ = header // header declared above for documentation; line scanner handles stripping
-
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
+	scanner := bufio.NewScanner(logLines(logReader, tty))
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
 		select {
@@ -123,15 +100,45 @@ func (s *Server) handleLogsSSE(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 
-		line := stripDockerHeader(scanner.Bytes())
+		line := strings.TrimRight(scanner.Text(), "\r")
 		if line == "" {
 			continue
 		}
 		sseEvent(w, flusher, "log", line)
 	}
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		sseEvent(w, flusher, "error", "reading log stream: "+err.Error())
+	}
 
 	// Stream ended (container stopped or log EOF).
 	sseEvent(w, flusher, "done", time.Now().UTC().Format(time.RFC3339))
+}
+
+// logsContainerID extracts the container ID from /api/logs/{id} or, failing
+// that, from the ?container= query parameter.
+func logsContainerID(r *http.Request) string {
+	id := strings.TrimPrefix(r.URL.Path, "/api/logs")
+	id = strings.Trim(id, "/")
+	if id == "" {
+		id = r.URL.Query().Get("container")
+	}
+	return strings.TrimSpace(id)
+}
+
+// logLines returns a reader of plain log text. Containers without a TTY send
+// stdout and stderr multiplexed in 8-byte-header frames whose boundaries do
+// not line up with newlines, so the frames are decoded with stdcopy and both
+// streams are merged; TTY containers already send raw text.
+func logLines(src io.Reader, tty bool) io.Reader {
+	if tty {
+		return src
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		_, err := stdcopy.StdCopy(pw, pw, src)
+		_ = pw.CloseWithError(err)
+	}()
+	return pr
 }
 
 // ---------------------------------------------------------------------------
@@ -150,16 +157,4 @@ func sseEvent(w http.ResponseWriter, f http.Flusher, eventType, data string) {
 	data = strings.ReplaceAll(data, "\n", "\ndata: ")
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
 	f.Flush()
-}
-
-// stripDockerHeader removes the 8-byte Docker multiplexing frame header from
-// log output when present.  The header is identified by the first byte being
-// 0x01 (stdout) or 0x02 (stderr).  For TTY containers the bytes are raw text
-// and the first byte is a printable character — those lines are returned as-is.
-func stripDockerHeader(b []byte) string {
-	if len(b) > 8 && (b[0] == 0x01 || b[0] == 0x02) {
-		// Non-TTY multiplexed frame: skip the 8-byte header.
-		return strings.TrimRight(string(b[8:]), "\r\n")
-	}
-	return strings.TrimRight(string(b), "\r\n")
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -65,20 +66,20 @@ type ResolvedRecipe struct {
 // Resolve searches the cascading hierarchy for a recipe named `name`, returning
 // the first match found. Priority order:
 //
-//  1. Local workspace: ./.lbmesh/recipe.yaml
+//  1. Local workspace: ./.lbmesh/recipe.yaml (only when its metadata.name is name)
 //  2. User custom: ~/.lbmesh/custom/templates/<name>/recipe.v1.yaml
-//  3. Git taps: ~/.lbmesh/taps/<org>/templates/<name>/recipe.v1.yaml
+//  3. Git taps: ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/recipe.v1.yaml
 //  4. Cached catalog: ~/.lbmesh/catalog/templates/<category>/<name>/recipe.v1.yaml
 //  5. Embedded defaults: default_catalog/<name>/recipe.v1.yaml
 func Resolve(name string) (*ResolvedRecipe, error) {
-	if name == "" {
-		return nil, fmt.Errorf("recipe name must not be empty")
+	if err := ValidateName(name); err != nil {
+		return nil, err
 	}
 
 	// 1. Local workspace project recipe.
 	if path := filepath.Join(".lbmesh", "recipe.yaml"); fileExists(path) {
 		rec, err := LoadFile(path)
-		if err == nil {
+		if err == nil && rec.Metadata.Name == name {
 			return &ResolvedRecipe{Recipe: *rec, Source: SourceLocalWorkspace, Path: path}, nil
 		}
 	}
@@ -96,8 +97,9 @@ func Resolve(name string) (*ResolvedRecipe, error) {
 		}
 	}
 
-	// 3. Connected git taps: ~/.lbmesh/taps/<org>/templates/<name>/recipe.v1.yaml
-	if path, err := firstMatch(filepath.Join(root, "taps", "*", "templates", name, "recipe.v1.yaml")); err == nil {
+	// 3. Connected git taps, laid out by TapAdd as
+	//    ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/recipe.v1.yaml
+	if path, err := firstMatch(filepath.Join(root, "taps", "*", "*", "*", "templates", name, "recipe.v1.yaml")); err == nil {
 		rec, err2 := LoadFile(path)
 		if err2 == nil {
 			return &ResolvedRecipe{Recipe: *rec, Source: SourceTap, Path: path}, nil
@@ -127,6 +129,20 @@ func Resolve(name string) (*ResolvedRecipe, error) {
 	}
 
 	return nil, fmt.Errorf("recipe %q not found in any source (workspace, custom, taps, catalog, embedded)", name)
+}
+
+// ValidateName reports whether name can be used as a recipe (or catalog
+// category) directory name: non-empty, a single path element, and free of glob
+// metacharacters. Names reach the filesystem from CLI arguments, LLM plans and
+// the downloaded catalog index, so "../" and friends must be rejected.
+func ValidateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("recipe name must not be empty")
+	}
+	if name == "." || name == ".." || strings.ContainsAny(name, `/\*?[]`) {
+		return fmt.Errorf("invalid recipe name %q", name)
+	}
+	return nil
 }
 
 // firstMatch returns the first existing file matching the glob pattern, or an

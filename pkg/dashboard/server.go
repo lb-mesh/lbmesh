@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -71,7 +72,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	srv := &http.Server{
-		Handler:           s.mux,
+		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      0, // SSE streams must not timeout
 		IdleTimeout:       60 * time.Second,
@@ -108,11 +109,60 @@ func (s *Server) routes() {
 	// need manual trimming — we use manual trimming for broader compatibility.
 	s.mux.HandleFunc("/api/projects/", s.handleProjectAction)
 
-	// SSE log stream: GET /api/logs/{containerID}
+	// SSE log stream: GET /api/logs/{containerID}  |  GET /api/logs?container={id}
+	s.mux.HandleFunc("/api/logs", s.handleLogsSSE)
 	s.mux.HandleFunc("/api/logs/", s.handleLogsSSE)
 
 	// Static SPA assets + SPA fallback (must be last).
 	s.mux.HandleFunc("/", s.handleSPA)
+}
+
+// Handler returns the server's root HTTP handler: the route mux wrapped in the
+// local-origin guard.
+func (s *Server) Handler() http.Handler {
+	return s.localOnly(s.mux)
+}
+
+// localOnly rejects requests that a web page on another site could make
+// through the user's browser. The dashboard has no authentication, so:
+//
+//   - The Host header must be an IP literal, "localhost", or the configured
+//     bind host. This defeats DNS rebinding, where an attacker's domain is
+//     re-pointed at 127.0.0.1 to read the API.
+//   - Any request carrying an Origin header must come from this same host.
+//     This stops cross-site POSTs to /api/projects/{id}/up|down (CSRF).
+func (s *Server) localOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.allowedHost(r.Host) {
+			errJSON(w, http.StatusForbidden, "forbidden host")
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			u, err := url.Parse(origin)
+			if err != nil || !strings.EqualFold(u.Host, r.Host) {
+				errJSON(w, http.StatusForbidden, "cross-origin request rejected")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// allowedHost reports whether hostport (a Host header value) names this
+// machine directly rather than through an arbitrary DNS name.
+func (s *Server) allowedHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return false
+	}
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	return strings.EqualFold(host, "localhost") || strings.EqualFold(host, s.cfg.Host)
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/lbmesh/lbmesh-v2/internal/version"
+	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/recipe"
 )
 
@@ -34,12 +36,12 @@ func errJSON(w http.ResponseWriter, status int, msg string) {
 
 // StatusResponse is the JSON payload returned by GET /api/status.
 type StatusResponse struct {
-	OK           bool      `json:"ok"`
-	Version      string    `json:"version"`
-	OS           string    `json:"os"`
-	Arch         string    `json:"arch"`
-	Timestamp    time.Time `json:"timestamp"`
-	EngineOnline bool      `json:"engine_online"`
+	OK           bool        `json:"ok"`
+	Version      string      `json:"version"`
+	OS           string      `json:"os"`
+	Arch         string      `json:"arch"`
+	Timestamp    time.Time   `json:"timestamp"`
+	EngineOnline bool        `json:"engine_online"`
 	EngineInfo   *EngineInfo `json:"engine_info,omitempty"`
 }
 
@@ -60,7 +62,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	resp := StatusResponse{
 		OK:        true,
-		Version:   "dev",
+		Version:   version.Version,
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 		Timestamp: time.Now().UTC(),
@@ -89,13 +91,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // ProjectItem is an entry in the projects list response.
 type ProjectItem struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Network   string    `json:"network"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Path      string        `json:"path"`
+	Network   string        `json:"network"`
+	Status    string        `json:"status"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
 	Services  []ServiceItem `json:"services,omitempty"`
 }
 
@@ -132,12 +134,12 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	var projects []ProjectItem
 	for rows.Next() {
 		var p ProjectItem
-		var createdAt, updatedAt string
+		var createdAt, updatedAt any
 		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Network, &p.Status, &createdAt, &updatedAt); err != nil {
 			continue
 		}
-		p.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		p.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		p.CreatedAt = db.ParseTimestamp(createdAt)
+		p.UpdatedAt = db.ParseTimestamp(updatedAt)
 
 		// Attach services for this project.
 		p.Services = s.servicesForProject(r, p.ID)
@@ -260,11 +262,11 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	var ports []PortItem
 	for rows.Next() {
 		var p PortItem
-		var allocatedAt string
+		var allocatedAt any
 		if err := rows.Scan(&p.ID, &p.ServiceID, &p.ContainerPort, &p.HostPort, &p.Protocol, &allocatedAt); err != nil {
 			continue
 		}
-		p.AllocatedAt, _ = time.Parse("2006-01-02 15:04:05", allocatedAt)
+		p.AllocatedAt = db.ParseTimestamp(allocatedAt)
 		ports = append(ports, p)
 	}
 	if err := rows.Err(); err != nil {

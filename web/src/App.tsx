@@ -181,12 +181,18 @@ function App() {
     }
 
     // Connect to native Go Server-Sent Events endpoint
-    const es = new EventSource(`/api/logs?container=${selectedContainer}`);
+    const es = new EventSource(`/api/logs/${encodeURIComponent(selectedContainer)}`);
     eventSourceRef.current = es;
 
-    es.onmessage = (event) => {
-      setLogs((prev) => [...prev, event.data]);
-    };
+    // The server emits named events ("log", "error", "done"), which
+    // onmessage does not receive.
+    es.addEventListener('log', (event) => {
+      setLogs((prev) => [...prev, (event as MessageEvent).data]);
+    });
+    es.addEventListener('done', () => {
+      setLogs((prev) => [...prev, "Log stream ended."]);
+      es.close();
+    });
 
     es.onerror = () => {
       setLogs((prev) => [...prev, "Connection to log stream suspended or container stopped."]);

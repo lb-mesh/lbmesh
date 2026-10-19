@@ -2,11 +2,11 @@
 // host ports are fully unoccupied before committing them to running containers.
 //
 // The broker enforces two layers of conflict detection:
-//   1. A SQLite query against the active port_allocations table to catch
-//      ports already claimed by lbmesh-managed services.
-//   2. A real-time TCP socket probe via net.Listen to catch host-native
-//      processes (e.g. Homebrew-installed databases) that sit outside of
-//      Docker/Podman entirely.
+//  1. A SQLite query against the active port_allocations table to catch
+//     ports already claimed by lbmesh-managed services.
+//  2. A real-time TCP socket probe via net.Listen to catch host-native
+//     processes (e.g. Homebrew-installed databases) that sit outside of
+//     Docker/Podman entirely.
 //
 // When a conflict is found the broker increments the candidate port and
 // retries until a fully vacant port is located. The confirmed allocation is
@@ -17,7 +17,9 @@ package ports
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -117,8 +119,11 @@ func (b *Broker) Allocate(req Request) (Result, error) {
 
 		// Both checks passed — commit the allocation.
 		if err := b.commitAllocation(req.ServiceID, req.ContainerPort, candidate, req.Protocol); err != nil {
-			// Another goroutine may have raced us to the INSERT; keep scanning.
-			continue
+			if errors.Is(err, errPortTaken) {
+				// Another writer claimed this port after our checks; keep scanning.
+				continue
+			}
+			return Result{}, err
 		}
 
 		result := Result{
@@ -173,41 +178,52 @@ func (b *Broker) isPortInDB(hostPort int, protocol string) (bool, error) {
 	return count > 0, nil
 }
 
-// isPortBound probes the host OS by attempting to listen on addr.
-// Returns true when the port is already in use (listen fails), false when the
-// port is free (listen succeeds — the temporary listener is closed immediately).
+// isPortBound probes the host OS by attempting to bind the port.
+// Returns true when the port is already in use (bind fails), false when the
+// port is free (bind succeeds — the temporary socket is closed immediately).
+// UDP needs a packet socket: net.Listen only accepts stream networks.
 func isPortBound(hostPort int, protocol string) bool {
 	addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
-	ln, err := net.Listen(protocol, addr)
+	var c io.Closer
+	var err error
+	if protocol == "udp" {
+		c, err = net.ListenPacket("udp", addr)
+	} else {
+		c, err = net.Listen("tcp", addr)
+	}
 	if err != nil {
 		// Cannot bind — port is occupied by something on the host.
 		return true
 	}
-	_ = ln.Close()
+	_ = c.Close()
 	return false
 }
 
-// commitAllocation inserts a port_allocations row inside a transaction.
-// It returns an error if the INSERT races with another writer (UNIQUE violation
-// or FK error), allowing the caller to continue scanning.
-func (b *Broker) commitAllocation(serviceID string, containerPort, hostPort int, protocol string) error {
-	tx, err := b.db.Begin()
-	if err != nil {
-		return fmt.Errorf("beginning allocation transaction: %w", err)
-	}
+// errPortTaken is returned by commitAllocation when another writer claimed the
+// host port between the availability checks and the insert.
+var errPortTaken = errors.New("host port already allocated")
 
-	_, err = tx.Exec(
+// commitAllocation records the allocation. The existence check and the insert
+// are one statement, which SQLite executes atomically, so two brokers (even in
+// separate processes) can never both claim the same host port.
+func (b *Broker) commitAllocation(serviceID string, containerPort, hostPort int, protocol string) error {
+	res, err := b.db.Exec(
 		`INSERT INTO port_allocations (service_id, container_port, host_port, protocol)
-		 VALUES (?, ?, ?, ?)`,
-		serviceID, containerPort, hostPort, protocol,
+		 SELECT ?, ?, ?, ?
+		 WHERE NOT EXISTS (
+		     SELECT 1 FROM port_allocations WHERE host_port = ? AND protocol = ?
+		 )`,
+		serviceID, containerPort, hostPort, protocol, hostPort, protocol,
 	)
 	if err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("inserting port allocation: %w", err)
 	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing port allocation: %w", err)
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inserting port allocation: %w", err)
+	}
+	if n == 0 {
+		return errPortTaken
 	}
 	return nil
 }
