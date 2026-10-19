@@ -9,6 +9,7 @@ import (
 	"github.com/lbmesh/lbmesh-v2/internal/cli/catalog"
 	"github.com/lbmesh/lbmesh-v2/internal/cli/recipe"
 	"github.com/lbmesh/lbmesh-v2/internal/cli/tap"
+	"github.com/lbmesh/lbmesh-v2/internal/version"
 	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/dirs"
 )
@@ -16,8 +17,9 @@ import (
 // NewRootCmd constructs and returns the root lbmesh Cobra command.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "lbmesh",
-		Short: "Local infrastructure & container orchestration CLI",
+		Use:     "lbmesh",
+		Version: version.Version,
+		Short:   "Local infrastructure & container orchestration CLI",
 		Long: `lbmesh is a dependency-free, single-binary CLI that orchestrates local
 containers via Docker or Podman, manages isolated scoped bridge networks,
 and exposes an embedded React + Carbon UI dashboard.`,

@@ -78,6 +78,8 @@ Add the following configuration block to your Claude Desktop configuration file 
 Once configured, your AI assistant can natively call:
 -   `lbmesh_status`: View running services, active scopes, container IDs, and port mappings.
 -   `lbmesh_list_recipes`: View available Cascading Recipe templates to deploy.
+-   `lbmesh_up`: Start the containers of a registered project (by project ID or name).
+-   `lbmesh_down`: Stop the running containers of a registered project.
 
 ---
 
