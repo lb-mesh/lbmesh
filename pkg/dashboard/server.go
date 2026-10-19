@@ -139,9 +139,35 @@ func (s *Server) localOnly(next http.Handler) http.Handler {
 		}
 		if origin := r.Header.Get("Origin"); origin != "" {
 			u, err := url.Parse(origin)
-			if err != nil || !strings.EqualFold(u.Host, r.Host) {
-				errJSON(w, http.StatusForbidden, "cross-origin request rejected")
+			if err != nil {
+				errJSON(w, http.StatusForbidden, "invalid origin")
 				return
+			}
+
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				// For safe GET/HEAD requests, perform port-independent hostname check.
+				originHost := u.Host
+				if h, _, err := net.SplitHostPort(u.Host); err == nil {
+					originHost = h
+				}
+				originHost = strings.Trim(originHost, "[]")
+
+				reqHost := r.Host
+				if h, _, err := net.SplitHostPort(r.Host); err == nil {
+					reqHost = h
+				}
+				reqHost = strings.Trim(reqHost, "[]")
+
+				if !strings.EqualFold(originHost, reqHost) {
+					errJSON(w, http.StatusForbidden, "cross-origin request rejected")
+					return
+				}
+			} else {
+				// For state-modifying requests, require exact host and port match (same-origin) to prevent CSRF.
+				if !strings.EqualFold(u.Host, r.Host) {
+					errJSON(w, http.StatusForbidden, "cross-origin request rejected")
+					return
+				}
 			}
 		}
 		next.ServeHTTP(w, r)
