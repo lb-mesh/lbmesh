@@ -18,7 +18,7 @@ import (
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "lbmesh",
-		Version: version.Version,
+		Version: version.Get().Version,
 		Short:   "Local infrastructure & container orchestration CLI",
 		Long: `lbmesh is a dependency-free, single-binary CLI that orchestrates local
 containers via Docker or Podman, manages isolated scoped bridge networks,
@@ -38,7 +38,11 @@ and exposes an embedded React + Carbon UI dashboard.`,
 		},
 	}
 
+	// Keep `lbmesh --version` consistent with `lbmesh version --short`.
+	root.SetVersionTemplate("lbmesh {{.Version}}\n")
+
 	root.AddCommand(
+		newVersionCmd(),
 		newInitCmd(),
 		newUpCmd(),
 		newDownCmd(),
