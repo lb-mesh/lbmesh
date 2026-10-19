@@ -9,8 +9,9 @@ import (
 // PrintSetupInstructions writes a detailed, platform-aware guide to os.Stderr
 // explaining how to install and start a container engine when no active daemon
 // socket was found.  It is called automatically by Detect before returning
-// ErrNoEngine so callers only need to handle the error value.
-func PrintSetupInstructions() {
+// ErrNoEngine so callers only need to handle the error value.  tried lists the
+// endpoints that were probed.
+func PrintSetupInstructions(tried []string) {
 	w := os.Stderr
 
 	fmt.Fprintln(w, "")
@@ -22,8 +23,8 @@ func PrintSetupInstructions() {
 	fmt.Fprintln(w, "No responsive daemon socket was found after checking:")
 	fmt.Fprintln(w, "")
 
-	for _, p := range candidatePaths() {
-		fmt.Fprintf(w, "  • %s\n", p)
+	for _, h := range tried {
+		fmt.Fprintf(w, "  • %s\n", h)
 	}
 
 	fmt.Fprintln(w, "")
@@ -122,4 +123,6 @@ func printGenericInstructions(w *os.File) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  export DOCKER_HOST=unix:///path/to/docker.sock")
 	fmt.Fprintln(w, "  export CONTAINER_HOST=unix:///path/to/podman.sock")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Remote ssh:// connections are not supported; forward the socket locally.")
 }

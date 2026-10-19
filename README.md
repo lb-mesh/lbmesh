@@ -33,6 +33,19 @@ brew install lbmesh
 
 ---
 
+### Supported Container Engines
+
+LBMesh talks to Docker or Podman through the Docker-compatible API; no CLI wrapper is involved. It probes, in order:
+
+- `DOCKER_HOST`, then `CONTAINER_HOST` (`unix://`, `tcp://` or `npipe://`; `ssh://` is not supported)
+- **macOS:** Podman 5 machine sockets (`$TMPDIR/podman/*-api.sock`, `~/.local/share/containers/podman/machine/podman.sock`), Podman 4 QEMU sockets, Docker Desktop (`~/.docker/run/docker.sock`), then `/var/run/docker.sock`
+- **Linux:** rootless Podman (`$XDG_RUNTIME_DIR/podman/podman.sock`; run `systemctl --user enable --now podman.socket`), rootful Podman (`/run/podman/podman.sock`), Docker Desktop, then `/var/run/docker.sock`
+- **Windows:** `npipe:////./pipe/podman-machine-default`, then `npipe:////./pipe/docker_engine`
+
+If none answers and `podman` is installed, LBMesh asks `podman machine inspect` for the sockets of any running machine.
+
+---
+
 ## 🛠️ CLI Quickstart
 
 Once installed, bootstrap your local environment in seconds:

@@ -21,12 +21,25 @@ import (
 type podmanMachineList []podmanMachineEntry
 
 // podmanMachineEntry is the relevant subset of a single machine entry.
-// Only the fields needed for capacity inspection are decoded; the rest are
-// ignored via the catch-all JSON decoder behaviour.
+// Only the fields needed for capacity inspection and socket discovery are
+// decoded; the rest are ignored.
 type podmanMachineEntry struct {
-	Name   string               `json:"Name"`
-	State  string               `json:"State"`
-	Config podmanMachineConfig  `json:"Config"`
+	Name  string `json:"Name"`
+	State string `json:"State"`
+	// Resources is where Podman 4 and 5 report the VM allocation.
+	Resources podmanMachineConfig `json:"Resources"`
+	// Config is accepted as a fallback for output that nests the allocation
+	// under "Config".
+	Config         podmanMachineConfig `json:"Config"`
+	ConnectionInfo struct {
+		PodmanSocket *podmanPath `json:"PodmanSocket"`
+		PodmanPipe   *podmanPath `json:"PodmanPipe"`
+	} `json:"ConnectionInfo"`
+}
+
+// podmanPath is a {"Path": "..."} object in `podman machine inspect` output.
+type podmanPath struct {
+	Path string `json:"Path"`
 }
 
 // podmanMachineConfig holds the VM resource allocation configuration.
@@ -35,6 +48,14 @@ type podmanMachineConfig struct {
 	Memory uint64 `json:"Memory"`
 	// CPUs is the number of virtual CPUs allocated to the machine.
 	CPUs uint64 `json:"CPUs"`
+}
+
+// resources returns the machine's allocation, preferring Resources.
+func (e podmanMachineEntry) resources() podmanMachineConfig {
+	if e.Resources.Memory != 0 || e.Resources.CPUs != 0 {
+		return e.Resources
+	}
+	return e.Config
 }
 
 // ---------------------------------------------------------------------------
@@ -130,10 +151,45 @@ func parsePodmanMachineJSON(data []byte) (MachineInfo, error) {
 		}
 	}
 
+	res := entry.resources()
 	return MachineInfo{
 		Name:          entry.Name,
 		State:         entry.State,
-		TotalMemoryMB: entry.Config.Memory,
-		CPUs:          entry.Config.CPUs,
+		TotalMemoryMB: res.Memory,
+		CPUs:          res.CPUs,
 	}, nil
+}
+
+// PodmanAPIHosts asks `podman machine inspect` where each running machine
+// serves its Docker-compatible API and returns those endpoints as Docker
+// client host URLs ("unix://…" or "npipe://…"). It covers machines with
+// non-default names and VM providers whose socket lives in a location lbmesh
+// does not probe directly. An error is returned when podman is not installed.
+func PodmanAPIHosts() ([]string, error) {
+	raw, err := runPodmanInspect()
+	if err != nil {
+		return nil, err
+	}
+	return parsePodmanAPIHosts(raw)
+}
+
+func parsePodmanAPIHosts(data []byte) ([]string, error) {
+	var list podmanMachineList
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("parsing podman machine inspect output: %w", err)
+	}
+	var hosts []string
+	for _, m := range list {
+		if !strings.EqualFold(m.State, "running") {
+			continue
+		}
+		if p := m.ConnectionInfo.PodmanSocket; p != nil && p.Path != "" {
+			hosts = append(hosts, "unix://"+p.Path)
+		}
+		if p := m.ConnectionInfo.PodmanPipe; p != nil && p.Path != "" {
+			// \\.\pipe\name → npipe:////./pipe/name, the Docker client form.
+			hosts = append(hosts, "npipe://"+strings.ReplaceAll(p.Path, `\`, "/"))
+		}
+	}
+	return hosts, nil
 }

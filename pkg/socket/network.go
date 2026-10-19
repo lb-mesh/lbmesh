@@ -3,6 +3,7 @@ package socket
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/network"
@@ -91,12 +92,25 @@ func ConnectContainer(c *client.Client, networkID, containerID string) error {
 	err := c.NetworkConnect(ctx, networkID, containerID, &network.EndpointSettings{})
 	if err != nil {
 		// Tolerate "already connected" — idempotent by design.
-		if errdefs.IsConflict(err) {
+		if isAlreadyConnected(err) {
 			return nil
 		}
 		return fmt.Errorf("connecting container %s to network %s: %w", containerID, networkID, err)
 	}
 	return nil
+}
+
+// isAlreadyConnected reports whether a NetworkConnect error means the
+// container is already on the network. Engines disagree on the status code:
+// Docker answers 403 ("endpoint with name … already exists in network"),
+// Podman a generic error ("network is already connected"), others 409.
+func isAlreadyConnected(err error) bool {
+	if errdefs.IsConflict(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already connected") ||
+		strings.Contains(msg, "already exists in network")
 }
 
 // RemoveNetwork deletes a bridge network by ID or name.

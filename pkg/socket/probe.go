@@ -1,5 +1,5 @@
 // Package socket provides auto-detection and probing of container runtime
-// daemon sockets (Docker and Podman) without spawning external processes.
+// daemon endpoints (Docker, and Podman through its Docker-compatible API).
 package socket
 
 import (
@@ -8,77 +8,145 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/client"
+
+	"github.com/lbmesh/lbmesh-v2/pkg/machine"
 )
 
 // ---------------------------------------------------------------------------
-// Candidate socket path resolution
+// Candidate engine endpoints
 // ---------------------------------------------------------------------------
 
-// candidatePaths returns the ordered list of socket paths to probe.
-// Environment variable overrides (DOCKER_HOST / CONTAINER_HOST) are checked
-// first, followed by well-known default locations for each platform.
+// candidateHosts returns the ordered list of engine endpoints to probe, as
+// Docker client host URLs ("unix://…", "npipe://…", "tcp://…").
 //
 // Priority order:
-//  1. DOCKER_HOST env var
-//  2. CONTAINER_HOST env var  (Podman)
-//  3. macOS / Windows: Podman machine QEMU socket
-//  4. Linux rootless Podman: $XDG_RUNTIME_DIR/podman/podman.sock
-//  5. Classic Docker socket:  /var/run/docker.sock
-func candidatePaths() []string {
-	var paths []string
-
-	// 1. DOCKER_HOST environment override.
-	if v := os.Getenv("DOCKER_HOST"); v != "" {
-		paths = append(paths, stripUnixScheme(v))
+//  1. DOCKER_HOST, then CONTAINER_HOST (Podman), exactly as set.
+//  2. Platform defaults, Podman before Docker (see platformHosts).
+//
+// Endpoints the Docker client cannot dial itself (ssh://) are skipped.
+func candidateHosts() []string {
+	var hosts []string
+	seen := map[string]bool{}
+	add := func(h string) {
+		if h == "" || seen[h] {
+			return
+		}
+		seen[h] = true
+		hosts = append(hosts, h)
 	}
 
-	// 2. CONTAINER_HOST environment override (Podman).
-	if v := os.Getenv("CONTAINER_HOST"); v != "" {
-		paths = append(paths, stripUnixScheme(v))
+	for _, env := range []string{"DOCKER_HOST", "CONTAINER_HOST"} {
+		if h, ok := normalizeHost(os.Getenv(env)); ok {
+			add(h)
+		}
 	}
 
-	switch runtime.GOOS {
-	case "darwin", "windows":
-		// 3. Podman Desktop / podman machine (QEMU) socket path on macOS and Windows.
-		if home, err := os.UserHomeDir(); err == nil {
-			paths = append(paths,
-				filepath.Join(home, ".local", "share", "containers", "podman",
-					"machine", "qemu", "podman.sock"),
+	home, _ := os.UserHomeDir()
+	for _, h := range platformHostsFn(runtime.GOOS, home, os.Getenv("TMPDIR"),
+		os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()) {
+		add(h)
+	}
+	return hosts
+}
+
+// platformHostsFn is platformHosts, as a variable so tests can stub it out.
+var platformHostsFn = platformHosts
+
+// platformHosts lists the well-known Podman and Docker endpoints for goos.
+func platformHosts(goos, home, tmpDir, xdgRuntimeDir string, uid int) []string {
+	unix := func(path string) string { return "unix://" + path }
+	var hosts []string
+
+	switch goos {
+	case "darwin":
+		if tmpDir == "" {
+			tmpDir = os.TempDir()
+		}
+		// Podman 5 (applehv / libkrun): $TMPDIR/podman/<machine>-api.sock.
+		// The default machine is listed first; any other machine name is
+		// picked up by the glob.
+		hosts = append(hosts, unix(filepath.Join(tmpDir, "podman", "podman-machine-default-api.sock")))
+		if matches, _ := filepath.Glob(filepath.Join(tmpDir, "podman", "*-api.sock")); len(matches) > 0 {
+			for _, m := range matches {
+				hosts = append(hosts, unix(m))
+			}
+		}
+		if home != "" {
+			hosts = append(hosts,
+				// Podman 5 stable symlink to the API socket.
+				unix(filepath.Join(home, ".local", "share", "containers", "podman", "machine", "podman.sock")),
+				// Podman 4 QEMU machines.
+				unix(filepath.Join(home, ".local", "share", "containers", "podman", "machine", "qemu", "podman.sock")),
+				unix(filepath.Join(home, ".local", "share", "containers", "podman", "machine", "podman-machine-default", "podman.sock")),
+				// Docker Desktop 4.13+ (per-user socket).
+				unix(filepath.Join(home, ".docker", "run", "docker.sock")),
 			)
 		}
-	default:
-		// 4. Linux rootless Podman: $XDG_RUNTIME_DIR/podman/podman.sock.
-		if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
-			paths = append(paths, filepath.Join(xdg, "podman", "podman.sock"))
+		// podman-mac-helper or Docker Desktop's privileged symlink.
+		hosts = append(hosts, unix("/var/run/docker.sock"))
+
+	case "windows":
+		hosts = append(hosts,
+			"npipe:////./pipe/podman-machine-default",
+			"npipe:////./pipe/docker_engine",
+		)
+
+	default: // linux and other unix
+		// Rootless Podman: $XDG_RUNTIME_DIR/podman/podman.sock.
+		if xdgRuntimeDir == "" && uid > 0 {
+			xdgRuntimeDir = fmt.Sprintf("/run/user/%d", uid)
 		}
+		if xdgRuntimeDir != "" {
+			hosts = append(hosts, unix(filepath.Join(xdgRuntimeDir, "podman", "podman.sock")))
+		}
+		// Rootful Podman.
+		hosts = append(hosts, unix("/run/podman/podman.sock"))
+		if home != "" {
+			// Docker Desktop for Linux.
+			hosts = append(hosts, unix(filepath.Join(home, ".docker", "desktop", "docker.sock")))
+		}
+		hosts = append(hosts, unix("/var/run/docker.sock"))
 	}
-
-	// 5. Default Docker socket present on all UNIX-like systems.
-	paths = append(paths, "/var/run/docker.sock")
-
-	return paths
+	return hosts
 }
 
-// stripUnixScheme removes the "unix://" prefix that tools like Docker CLI write
-// into DOCKER_HOST / CONTAINER_HOST so we always work with a raw file path.
-func stripUnixScheme(s string) string {
-	const prefix = "unix://"
-	if len(s) > len(prefix) && s[:len(prefix)] == prefix {
-		return s[len(prefix):]
+// normalizeHost turns a DOCKER_HOST / CONTAINER_HOST value into a Docker
+// client host URL. A bare path is treated as a unix socket. It reports false
+// for empty values and for schemes the Docker client cannot dial (ssh://,
+// which Podman uses for remote connections).
+func normalizeHost(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	switch {
+	case v == "":
+		return "", false
+	case strings.HasPrefix(v, "ssh://"):
+		return "", false
+	case strings.Contains(v, "://"):
+		return v, true
+	default:
+		return "unix://" + v, true
 	}
-	return s
 }
 
-// socketExists returns true when path points to an existing UNIX socket file.
-func socketExists(path string) bool {
+// reachable reports whether host might have a live engine behind it, so that
+// missing sockets are skipped without a ping timeout. Only unix sockets can
+// be checked locally; pipes and TCP endpoints are always tried.
+func reachable(host string) bool {
+	path, ok := strings.CutPrefix(host, "unix://")
+	if !ok {
+		return true
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
-	// ModeSocket is set on UNIX domain socket files.
+	// ModeSocket is set on UNIX domain socket files (os.Stat follows the
+	// symlinks Podman and Docker Desktop create).
 	return info.Mode()&os.ModeSocket != 0
 }
 
@@ -89,25 +157,58 @@ func socketExists(path string) bool {
 // pingTimeout is the maximum time allowed for a single daemon ping attempt.
 const pingTimeout = 3 * time.Second
 
-// Detect walks the candidate socket list, attempts a live ping against each
-// one, and returns the first verified *client.Client together with the socket
-// path it is connected to.
+// podmanAPIHosts asks the podman CLI for its machine sockets. It is a variable
+// so tests can stub it out.
+var podmanAPIHosts = machine.PodmanAPIHosts
+
+// Detect walks the candidate endpoints, attempts a live ping against each
+// one, and returns the first verified *client.Client together with the host
+// URL it is connected to. Docker and Podman (via its Docker-compatible API)
+// are both supported.
+//
+// When none of the well-known endpoints answers and the podman CLI is
+// installed, the sockets reported by `podman machine inspect` are tried as a
+// last resort; this finds machines with custom names or VM providers.
 //
 // If no active daemon is found, an [ErrNoEngine] sentinel error is returned and
 // a human-readable setup guide is printed to stderr so that callers do not need
 // to handle the messaging themselves.
 func Detect() (*client.Client, string, error) {
-	for _, sockPath := range candidatePaths() {
-		if !socketExists(sockPath) {
+	tried := candidateHosts()
+	if c, host := firstLive(tried); c != nil {
+		return c, host, nil
+	}
+
+	if extra, err := podmanAPIHosts(); err == nil {
+		var fresh []string
+		for _, h := range extra {
+			if !slices.Contains(tried, h) {
+				fresh = append(fresh, h)
+			}
+		}
+		if c, host := firstLive(fresh); c != nil {
+			return c, host, nil
+		}
+		tried = append(tried, fresh...)
+	}
+
+	PrintSetupInstructions(tried)
+	return nil, "", ErrNoEngine
+}
+
+// firstLive returns a client for the first host that answers a ping.
+func firstLive(hosts []string) (*client.Client, string) {
+	for _, host := range hosts {
+		if !reachable(host) {
 			continue
 		}
 
 		c, err := client.NewClientWithOpts(
-			client.WithHost("unix://"+sockPath),
+			client.WithHost(host),
 			client.WithAPIVersionNegotiation(),
 		)
 		if err != nil {
-			// Construction failure is unusual; skip and try the next candidate.
+			// Unsupported scheme on this platform, malformed URL, etc.
 			continue
 		}
 
@@ -116,15 +217,13 @@ func Detect() (*client.Client, string, error) {
 		cancel()
 
 		if pingErr == nil {
-			return c, sockPath, nil
+			return c, host
 		}
 
 		// Ping failed — close the idle connection and try the next candidate.
 		_ = c.Close()
 	}
-
-	PrintSetupInstructions()
-	return nil, "", ErrNoEngine
+	return nil, ""
 }
 
 // ---------------------------------------------------------------------------
