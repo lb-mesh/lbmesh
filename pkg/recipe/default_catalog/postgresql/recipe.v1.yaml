@@ -38,11 +38,30 @@ addons:
         # pgAdmin rejects reserved domains such as .local in the login email.
         PGADMIN_DEFAULT_EMAIL: admin@example.com
         PGADMIN_DEFAULT_PASSWORD: changeme
+        PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
       ports:
         - container: 80
           host: 8150
           protocol: tcp
       volumes:
         - /var/lib/pgadmin
+      files:
+        # Pre-registers the recipe's database; pgAdmin imports it on first
+        # start only (the password is still prompted on connect).
+        - path: /pgadmin4/servers.json
+          content: |
+            {
+              "Servers": {
+                "1": {
+                  "Name": "postgresql",
+                  "Group": "Servers",
+                  "Host": "postgresql",
+                  "Port": 5432,
+                  "MaintenanceDB": "appdb",
+                  "Username": "appuser",
+                  "SSLMode": "prefer"
+                }
+              }
+            }
     outputs:
-      instructions: pgAdmin is running on http://localhost:8150 (admin@example.com / changeme); register server host "postgresql".
+      instructions: pgAdmin is running on http://localhost:8150 (admin@example.com / changeme); the "postgresql" server is pre-registered.

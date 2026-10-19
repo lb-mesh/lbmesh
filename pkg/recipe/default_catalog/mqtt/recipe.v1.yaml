@@ -11,19 +11,32 @@ resources:
   min_cpus: 1
 container:
   image: eclipse-mosquitto:2
-  # Mosquitto 2 only listens on loopback by default; the image's bundled
-  # no-auth config listens on all interfaces.
-  args:
-    - mosquitto
-    - -c
-    - /mosquitto-no-auth.conf
   ports:
     - container: 1883
       host: 1883
       protocol: tcp
+    - container: 9001
+      host: 9001
+      protocol: tcp
   volumes:
     - /mosquitto/data
+  files:
+    # Mosquitto 2 only listens on loopback by default; this config listens on
+    # all interfaces for MQTT and MQTT over websockets.
+    - path: /mosquitto/config/mosquitto.conf
+      content: |
+        listener 1883
+        protocol mqtt
+
+        listener 9001
+        protocol websockets
+
+        allow_anonymous true
+
+        persistence true
+        persistence_location /mosquitto/data/
 outputs:
   env:
     MQTT_URL: mqtt://localhost:1883
-  instructions: Mosquitto is running on mqtt://localhost:1883 with anonymous access.
+    MQTT_WS_URL: ws://localhost:9001
+  instructions: Mosquitto is running on mqtt://localhost:1883 and ws://localhost:9001 with anonymous access.
