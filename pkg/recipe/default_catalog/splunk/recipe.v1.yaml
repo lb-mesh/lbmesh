@@ -1,0 +1,34 @@
+recipe: v1
+metadata:
+  name: splunk
+  category: observability
+  description: Splunk Enterprise (free trial license) with HTTP Event Collector.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 1024
+  recommended_memory_mb: 2048
+  min_cpus: 2
+container:
+  image: splunk/splunk:9.3
+  environment:
+    SPLUNK_START_ARGS: --accept-license
+    SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+    # Splunk requires an admin password of at least 8 characters.
+    SPLUNK_PASSWORD: changeme
+    SPLUNK_HEC_TOKEN: 00000000-0000-0000-0000-000000000000
+  ports:
+    - container: 8000
+      host: 8000
+      protocol: tcp
+    - container: 8088
+      host: 8088
+      protocol: tcp
+  volumes:
+    - /opt/splunk/etc
+    - /opt/splunk/var
+outputs:
+  env:
+    SPLUNK_HEC_URL: https://localhost:8088/services/collector
+    SPLUNK_HEC_TOKEN: 00000000-0000-0000-0000-000000000000
+  instructions: Splunk web is on http://localhost:8000 (admin / changeme); first start takes a few minutes. The image is amd64-only and runs under emulation on Apple Silicon.

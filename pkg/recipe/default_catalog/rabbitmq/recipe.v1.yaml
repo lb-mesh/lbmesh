@@ -1,0 +1,31 @@
+recipe: v1
+metadata:
+  name: rabbitmq
+  category: messaging
+  description: RabbitMQ message broker with the management web UI.
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 256
+  recommended_memory_mb: 512
+  min_cpus: 1
+container:
+  image: rabbitmq:4-management
+  environment:
+    RABBITMQ_DEFAULT_USER: admin
+    RABBITMQ_DEFAULT_PASS: changeme
+    # A fixed node name keeps the data volume usable across container restarts.
+    RABBITMQ_NODENAME: rabbit@localhost
+  ports:
+    - container: 5672
+      host: 5672
+      protocol: tcp
+    - container: 15672
+      host: 15672
+      protocol: tcp
+  volumes:
+    - /var/lib/rabbitmq
+outputs:
+  env:
+    AMQP_URL: amqp://admin:changeme@localhost:5672
+  instructions: RabbitMQ is running on localhost:5672; management UI at http://localhost:15672 (admin / changeme).

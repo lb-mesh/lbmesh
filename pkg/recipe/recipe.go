@@ -16,12 +16,14 @@ const RecipeVersion = "v1"
 
 // ValidCategories is the set of recognized recipe metadata categories.
 var ValidCategories = map[string]struct{}{
-	"database":  {},
-	"backend":   {},
-	"auth":      {},
-	"ai-agent":  {},
-	"cache":     {},
-	"webserver": {},
+	"database":      {},
+	"backend":       {},
+	"auth":          {},
+	"ai-agent":      {},
+	"cache":         {},
+	"webserver":     {},
+	"messaging":     {},
+	"observability": {},
 }
 
 // ValidScopes is the set of recognized execution scopes.

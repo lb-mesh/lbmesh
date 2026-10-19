@@ -1,0 +1,29 @@
+recipe: v1
+metadata:
+  name: mqtt
+  category: messaging
+  description: Eclipse Mosquitto MQTT broker (anonymous access, for local development).
+  scope: system
+  version: "1.0.0"
+resources:
+  min_memory_mb: 32
+  recommended_memory_mb: 128
+  min_cpus: 1
+container:
+  image: eclipse-mosquitto:2
+  # Mosquitto 2 only listens on loopback by default; the image's bundled
+  # no-auth config listens on all interfaces.
+  args:
+    - mosquitto
+    - -c
+    - /mosquitto-no-auth.conf
+  ports:
+    - container: 1883
+      host: 1883
+      protocol: tcp
+  volumes:
+    - /mosquitto/data
+outputs:
+  env:
+    MQTT_URL: mqtt://localhost:1883
+  instructions: Mosquitto is running on mqtt://localhost:1883 with anonymous access.
