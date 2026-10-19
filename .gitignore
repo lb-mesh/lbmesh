@@ -1,6 +1,7 @@
 node_modules
 bootstrap-plan.md
-plan.mdtelemetry-plan.md
+plan.md
+telemetry-plan.md
 docs-website-plan.md
 ai-plugins-plan.md
 editor-plugins-plan.md
