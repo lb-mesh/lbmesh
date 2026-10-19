@@ -36,7 +36,7 @@ builds:
 
 archives:
   - id: lbmesh
-    builds:
+    ids:
       - lbmesh
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
@@ -65,5 +65,32 @@ changelog:
       - Merge branch
 
 release:
-  draft: true
+  # Must be false: Homebrew downloads from the release URL, and draft assets are not public.
+  draft: false
   prerelease: auto
+
+brews:
+  - name: lbmesh
+    ids:
+      - lbmesh
+    repository:
+      owner: lb-mesh
+      name: homebrew-tap
+      branch: main
+      # Fine-grained PAT with Contents: read/write on lb-mesh/homebrew-tap.
+      # The Actions-provided GITHUB_TOKEN cannot push to another repository.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    commit_author:
+      name: lbmesh-release-bot
+      email: noreply@lbmesh.io
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://lbmesh.io"
+    description: "Autonomous Local Infrastructure & Container Orchestration CLI"
+    license: "Apache-2.0"
+    # Don't push pre-release tags (e.g. v1.1.0-rc.1) to the tap.
+    skip_upload: auto
+    install: |
+      bin.install "lbmesh"
+    test: |
+      assert_match "lbmesh", shell_output("#{bin}/lbmesh --help")

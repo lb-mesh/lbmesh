@@ -7,3 +7,6 @@ ai-plugins-plan.md
 editor-plugins-plan.md
 editor-plugins-plan.md
 dist/
+.DS_Store
+fleshed-out-specification.md
+homebrew-tap-plan.md
