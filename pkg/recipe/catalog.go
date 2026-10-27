@@ -14,7 +14,7 @@ import (
 
 // DefaultCatalogIndexURL is the upstream CDN endpoint for the official lbmesh
 // recipe index.  It can be overridden at build time or via configuration.
-const DefaultCatalogIndexURL = "https://raw.githubusercontent.com/lbmesh/catalog/main/index.json"
+const DefaultCatalogIndexURL = "https://raw.githubusercontent.com/lb-mesh/catalog/main/index.json"
 
 // CatalogEntry is a single record in the upstream catalog index JSON.
 type CatalogEntry struct {

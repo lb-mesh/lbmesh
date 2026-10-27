@@ -3,6 +3,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,29 @@ import (
 	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/dirs"
 )
+
+// banner is the LB Mesh dot-matrix logo rendered in bright green.
+const (
+	ansiGreen = "\033[92m"
+	ansiReset = "\033[0m"
+)
+
+const bannerText = `
+ |‾‾  ‾|‾  |‾‾\ /‾\ |‾‾  |\  |
+ |__|   |   |__/ | | |__  | \ |
+ |  \   |   |    | | |    |  \|
+ |__|  _|_  |    \_/ |__  |   |
+`
+
+func printBanner() {
+	// Skip the banner when stdout is not a terminal (e.g. pipes, CI).
+	if fi, err := os.Stdout.Stat(); err == nil {
+		if fi.Mode()&os.ModeCharDevice == 0 {
+			return
+		}
+	}
+	fmt.Print(ansiGreen + bannerText + ansiReset + "\n")
+}
 
 // NewRootCmd constructs and returns the root lbmesh Cobra command.
 func NewRootCmd() *cobra.Command {
@@ -25,8 +49,10 @@ containers via Docker or Podman, manages isolated scoped bridge networks,
 and exposes an embedded React + Carbon UI dashboard.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Ensure ~/.lbmesh directory tree exists and state DB migrations run before every command.
+		// Print the banner then ensure ~/.lbmesh dir tree and state DB migrations
+		// run before every command.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			printBanner()
 			if err := dirs.EnsureLocalDirs(); err != nil {
 				return err
 			}

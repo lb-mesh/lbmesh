@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
+
+	"github.com/lbmesh/lbmesh-v2/pkg/deploy"
 )
 
 func newUpCmd() *cobra.Command {
@@ -23,10 +23,16 @@ network, allocating host ports, and starting all required containers.`,
 			if len(args) > 0 {
 				recipeName = args[0]
 			}
-			// TODO(sub-task-2+): resolve recipe, probe socket, deploy containers.
-			fmt.Printf("up: recipe=%q scope=%s autoResize=%v env=%v with=%v\n",
-				recipeName, scope, autoResize, envVars, addons)
-			return nil
+			if recipeName == "" {
+				return cmd.Usage()
+			}
+			_ = autoResize // reserved for future Podman machine resize support
+			return deploy.Run(deploy.Options{
+				RecipeName:   recipeName,
+				Scope:        scope,
+				EnvOverrides: envVars,
+				Addons:       addons,
+			})
 		},
 	}
 

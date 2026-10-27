@@ -138,3 +138,31 @@ func TestLogLines_TTYPassthrough(t *testing.T) {
 		t.Fatalf("logLines(tty) = %q", got)
 	}
 }
+
+func TestStatusEndpoint(t *testing.T) {
+	s := newTestServer(t, Config{
+		SocketPath: "unix:///tmp/podman.sock",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Host = "127.0.0.1:8080"
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var status StatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if !status.OK {
+		t.Errorf("status.OK = false, want true")
+	}
+	if status.SocketPath != "unix:///tmp/podman.sock" {
+		t.Errorf("status.SocketPath = %q, want %q", status.SocketPath, "unix:///tmp/podman.sock")
+	}
+	if status.Engine == "" {
+		t.Errorf("status.Engine is empty, want non-empty")
+	}
+}

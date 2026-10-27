@@ -35,7 +35,7 @@ logs and metrics via Server-Sent Events.`,
 			}
 
 			// Probe for a running container engine (best-effort).
-			dockerClient, _, engineErr := socket.Detect()
+			dockerClient, socketPath, engineErr := socket.Detect()
 			if engineErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: no container engine detected — engine-dependent endpoints will return 503\n")
 			}
@@ -49,6 +49,7 @@ logs and metrics via Server-Sent Events.`,
 				Port:         port,
 				DB:           sqlDB,
 				DockerClient: dockerClient,
+				SocketPath:   socketPath,
 			})
 			if err != nil {
 				return fmt.Errorf("creating dashboard server: %w", err)

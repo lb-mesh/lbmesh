@@ -33,6 +33,8 @@ type Config struct {
 	// DockerClient is the active container engine client.  May be nil when no
 	// engine is running; endpoints that need it will return 503.
 	DockerClient *client.Client
+	// SocketPath is the detected UNIX / named pipe socket path of the container engine.
+	SocketPath string
 }
 
 // Server is the embedded dashboard HTTP server.

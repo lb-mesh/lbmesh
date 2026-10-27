@@ -30,11 +30,24 @@ import {
 } from '@carbon/icons-react';
 
 interface SystemStatus {
-  engine: string;
-  socket_path: string;
-  active_containers: number;
-  total_memory_mb: number;
-  available_memory_mb: number;
+  ok?: boolean;
+  version?: string;
+  os?: string;
+  arch?: string;
+  engine_online?: boolean;
+  engine?: string;
+  socket_path?: string;
+  active_containers?: number;
+  total_memory_mb?: number;
+  available_memory_mb?: number;
+  used_memory_mb?: number;
+  engine_info?: {
+    server_version: string;
+    os: string;
+    architecture: string;
+    ncpu: number;
+    mem_total_bytes: number;
+  };
 }
 
 interface ContainerService {
@@ -117,10 +130,12 @@ function App() {
   const setMockData = () => {
     setStatus({
       engine: 'Podman (Rootless)',
-      socket_path: '/Users/developer/.local/share/containers/podman/machine/qemu/podman.sock',
+      socket_path: '~/.local/share/containers/podman/machine/podman.sock',
       active_containers: 3,
       total_memory_mb: 4096,
       available_memory_mb: 2840,
+      used_memory_mb: 1256,
+      engine_online: true,
     });
 
     setProjects([
@@ -265,43 +280,95 @@ function App() {
             <TabPanel>
               <div className="cds--grid" style={{ padding: '1.5rem 0 0 0' }}>
                 <div className="cds--row" style={{ marginBottom: '1.5rem' }}>
-                  <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
-                    <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
-                      <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>DAEMON ENGINE</h4>
-                      <h2 style={{ fontSize: '1.75rem', fontWeight: 600, color: '#161616', marginBottom: '1rem' }}>
-                        {status?.engine || 'Detecting...'}
-                      </h2>
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <CheckmarkFilled style={{ fill: '#24a148', marginRight: '0.5rem' }} />
-                        <span style={{ fontSize: '0.875rem', color: '#525252' }}>Socket connected</span>
-                      </div>
-                    </Tile>
-                  </div>
+                  {(() => {
+                    const totalMB = Number(status?.total_memory_mb) || 0;
+                    const availMB = typeof status?.available_memory_mb === 'number' ? status.available_memory_mb : totalMB;
+                    const usedMB = typeof status?.used_memory_mb === 'number'
+                      ? status.used_memory_mb
+                      : Math.max(0, totalMB - availMB);
+                    const percent = totalMB > 0 ? Math.min(100, Math.max(0, Math.round((usedMB / totalMB) * 100))) : 0;
 
-                  <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
-                    <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
-                      <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>ACTIVE SERVICES</h4>
-                      <h2 style={{ fontSize: '2.5rem', fontWeight: 600, color: '#161616', marginBottom: '0.5rem' }}>
-                        {status?.active_containers ?? 0}
-                      </h2>
-                      <span style={{ fontSize: '0.875rem', color: '#525252' }}>Containers running across all scopes</span>
-                    </Tile>
-                  </div>
+                    const formatVal = (mb: number) => {
+                      if (mb >= 1024) {
+                        return `${(mb / 1024).toFixed(1)}GB`;
+                      }
+                      return `${Math.round(mb)}MB`;
+                    };
 
-                  <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
-                    <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
-                      <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>HYPERVISOR MEMORY USAGE</h4>
-                      <h2 style={{ fontSize: '1.75rem', fontWeight: 600, color: '#161616', marginBottom: '0.5rem' }}>
-                        {status ? `${status.total_memory_mb - status.available_memory_mb}MB / ${status.total_memory_mb}MB` : '0MB / 0MB'}
-                      </h2>
-                      <div style={{ display: 'flex', alignItems: 'center', marginTop: '0.5rem' }}>
-                        <ChartRing style={{ fill: '#0f62fe', marginRight: '0.5rem' }} />
-                        <span style={{ fontSize: '0.875rem', color: '#525252' }}>
-                          {status ? `${Math.round(((status.total_memory_mb - status.available_memory_mb) / status.total_memory_mb) * 100)}% allocated` : 'OOM Guard active'}
-                        </span>
-                      </div>
-                    </Tile>
-                  </div>
+                    const memoryDisplay = totalMB > 0 ? `${formatVal(usedMB)} / ${formatVal(totalMB)}` : '0MB / 0MB';
+                    const percentDisplay = totalMB > 0 ? `${percent}% allocated` : 'OOM Guard active';
+
+                    let memColor = '#0f62fe';
+                    if (percent >= 85) memColor = '#da1e28';
+                    else if (percent >= 65) memColor = '#f1c21b';
+                    else if (percent > 0) memColor = '#24a148';
+
+                    const isEngineConnected = status?.engine_online !== false && Boolean(status?.engine && status.engine !== 'No Engine Detected');
+                    const runningServicesCount = status?.active_containers ?? activeContainers.length;
+
+                    return (
+                      <>
+                        <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
+                          <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
+                            <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>DAEMON ENGINE</h4>
+                            <h2 style={{ fontSize: '1.75rem', fontWeight: 600, color: '#161616', marginBottom: '1rem' }}>
+                              {status?.engine || (loading ? 'Detecting...' : 'Standalone')}
+                            </h2>
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <CheckmarkFilled style={{ fill: isEngineConnected ? '#24a148' : '#8d8d8d', marginRight: '0.5rem' }} />
+                              <span style={{ fontSize: '0.875rem', color: '#525252' }}>
+                                {isEngineConnected ? 'Socket connected' : 'Socket offline'}
+                              </span>
+                            </div>
+                          </Tile>
+                        </div>
+
+                        <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
+                          <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
+                            <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>ACTIVE SERVICES</h4>
+                            <h2 style={{ fontSize: '2.5rem', fontWeight: 600, color: '#161616', marginBottom: '0.5rem' }}>
+                              {runningServicesCount}
+                            </h2>
+                            <span style={{ fontSize: '0.875rem', color: '#525252' }}>Containers running across all scopes</span>
+                          </Tile>
+                        </div>
+
+                        <div className="cds--col-md-4 cds--col-lg-4" style={{ marginBottom: '1rem' }}>
+                          <Tile style={{ minHeight: '150px', backgroundColor: 'white' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <h4 style={{ color: '#525252', fontSize: '0.875rem', fontWeight: 500, margin: 0 }}>HYPERVISOR MEMORY USAGE</h4>
+                              {totalMB > 0 && (
+                                <Tag type={percent >= 85 ? 'red' : percent >= 65 ? 'warm-gray' : 'green'} size="sm">
+                                  {percent}%
+                                </Tag>
+                              )}
+                            </div>
+                            <h2 style={{ fontSize: '1.75rem', fontWeight: 600, color: '#161616', marginBottom: '0.5rem' }}>
+                              {memoryDisplay}
+                            </h2>
+                            {totalMB > 0 && (
+                              <div style={{ width: '100%', height: '4px', backgroundColor: '#e0e0e0', borderRadius: '2px', overflow: 'hidden', margin: '0.5rem 0' }}>
+                                <div
+                                  style={{
+                                    width: `${percent}%`,
+                                    height: '100%',
+                                    backgroundColor: memColor,
+                                    transition: 'width 0.4s ease-in-out',
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', marginTop: '0.5rem' }}>
+                              <ChartRing style={{ fill: memColor, marginRight: '0.5rem' }} />
+                              <span style={{ fontSize: '0.875rem', color: '#525252' }}>
+                                {percentDisplay}
+                              </span>
+                            </div>
+                          </Tile>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="cds--row">
