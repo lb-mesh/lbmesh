@@ -257,7 +257,7 @@ func toolDefinitions() []map[string]interface{} {
 		},
 		{
 			"name":        "lbmesh_list_recipes",
-			"description": "List all available cascading recipe templates from custom directories, connected Git Taps, the cached catalog, and embedded defaults.",
+			"description": "List all available cascading recipe templates from custom directories, connected Git Taps, and the cached catalog.",
 			"inputSchema": noArgs,
 		},
 		{
@@ -551,7 +551,7 @@ type recipeEntry struct {
 }
 
 // collectRecipes lists recipe templates in the same priority order as
-// recipe.Resolve (custom, taps, cached catalog, embedded) and keeps one entry
+// recipe.Resolve (custom, taps, cached catalog) and keeps one entry
 // per name. The workspace-local ./.lbmesh/recipe.yaml is skipped because the
 // MCP server's working directory is chosen by the client.
 func collectRecipes() []recipeEntry {
@@ -587,13 +587,6 @@ func collectRecipes() []recipeEntry {
 			for _, n := range subdirNames(filepath.Join(catDir, cat)) {
 				add(n, cat, "catalog-cache")
 			}
-		}
-	}
-
-	// 4. Embedded defaults
-	if names, err := recipe.EmbeddedNames(); err == nil {
-		for _, n := range names {
-			add(n, "core", "embedded")
 		}
 	}
 

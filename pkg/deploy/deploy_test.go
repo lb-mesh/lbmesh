@@ -4,7 +4,59 @@ import (
 	"archive/tar"
 	"io"
 	"testing"
+
+	"github.com/lbmesh/lbmesh-v2/pkg/db"
+	"github.com/lbmesh/lbmesh-v2/pkg/ports"
 )
+
+// Ports reference services(id), so a service must be reserved before ports are
+// allocated, and releasing it must free those ports again.
+func TestReserveService_AllowsPortAllocationAndReleaseFreesPorts(t *testing.T) {
+	database, err := db.OpenAndMigrate(":memory:")
+	if err != nil {
+		t.Fatalf("OpenAndMigrate: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	broker := ports.New(database)
+	req := ports.Request{ServiceID: "svc-1", ContainerPort: 8787, PreferredHostPort: 38787, Protocol: "tcp"}
+
+	// Without a services row the insert violates the foreign key.
+	if _, err := broker.Allocate(req); err == nil {
+		t.Fatal("Allocate without a services row: want foreign key error, got nil")
+	}
+
+	if err := reserveService(database, "svc-1", "portkey", "system", "portkeyai/gateway:latest"); err != nil {
+		t.Fatalf("reserveService: %v", err)
+	}
+	res, err := broker.Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate after reserveService: %v", err)
+	}
+
+	releaseService(database, "svc-1")
+
+	var n int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM port_allocations WHERE service_id = 'svc-1'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("port_allocations after releaseService = %d, want 0", n)
+	}
+
+	// The released port can be claimed again by a new service.
+	if err := reserveService(database, "svc-2", "portkey", "system", "portkeyai/gateway:latest"); err != nil {
+		t.Fatal(err)
+	}
+	req.ServiceID = "svc-2"
+	again, err := broker.Allocate(req)
+	if err != nil {
+		t.Fatalf("Allocate after release: %v", err)
+	}
+	if again.AllocatedHostPort != res.AllocatedHostPort {
+		t.Errorf("reallocated port = %d, want %d", again.AllocatedHostPort, res.AllocatedHostPort)
+	}
+}
 
 func TestParseEnvOverrides(t *testing.T) {
 	pairs := []string{"FOO=bar", "BAZ=qux=with=equals", "EMPTY="}

@@ -29,8 +29,8 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "Display all discovered local, custom, tap, and upstream templates",
 		Long: `list scans every configured catalog source — the local custom directory,
-connected git taps, the cached upstream catalog, and the embedded default
-catalog — and prints a consolidated table of available recipes.`,
+connected git taps, and the cached upstream catalog — and prints a
+consolidated table of available recipes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			type row struct {
 				name     string
@@ -40,15 +40,7 @@ catalog — and prints a consolidated table of available recipes.`,
 
 			var rows []row
 
-			// 1. Embedded defaults.
-			embeddedNames, err := recipe.EmbeddedNames()
-			if err == nil {
-				for _, n := range embeddedNames {
-					rows = append(rows, row{name: n, category: "-", source: "embedded"})
-				}
-			}
-
-			// 2. User custom templates: ~/.lbmesh/custom/templates/<name>/
+			// 1. User custom templates: ~/.lbmesh/custom/templates/<name>/
 			root, err := dirs.LocalRoot()
 			if err == nil {
 				customDir := filepath.Join(root, "custom", "templates")
@@ -60,7 +52,7 @@ catalog — and prints a consolidated table of available recipes.`,
 					}
 				}
 
-				// 3. Cached upstream catalog templates: ~/.lbmesh/catalog/templates/<category>/<name>/
+				// 2. Cached upstream catalog templates: ~/.lbmesh/catalog/templates/<category>/<name>/
 				catDir := filepath.Join(root, "catalog", "templates")
 				if cats, err := os.ReadDir(catDir); err == nil {
 					for _, cat := range cats {
@@ -78,7 +70,7 @@ catalog — and prints a consolidated table of available recipes.`,
 					}
 				}
 
-				// 4. Git tap templates: ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/
+				// 3. Git tap templates: ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/
 				taps, err := recipe.TapList()
 				if err == nil {
 					for _, tap := range taps {

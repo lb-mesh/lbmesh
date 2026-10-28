@@ -29,6 +29,7 @@ if one does not already exist, and prepares the local state database.`,
 			}
 			_ = database.Close()
 			fmt.Println("lbmesh initialised successfully.")
+			fmt.Println("Next: run `lbmesh catalog sync` to download the recipe catalog.")
 			return nil
 		},
 	}

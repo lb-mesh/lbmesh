@@ -8,7 +8,7 @@
 
 1.  **Direct Socket IPC (No Shell Wrappers)**: Native communication with Docker and Podman daemon sockets without shell-exec dependencies or platform-specific wrapper lag.
 2.  **Zero-Conflict Port Allocation**: SQLite-backed port broker checks for active mappings combined with physical host TCP socket probes (`net.Listen`) to dynamically re-map conflicting container ports on-the-fly.
-3.  **Cascading Recipe Engine**: Declarative `recipe.v1.yaml` templates resolved from a cascading hierarchy (Local Workspace $\rightarrow$ User Custom $\rightarrow$ Git Taps $\rightarrow$ Cached Catalog $\rightarrow$ Embedded Defaults).
+3.  **Cascading Recipe Engine**: Declarative `recipe.v1.yaml` templates resolved from a cascading hierarchy (Local Workspace $\rightarrow$ User Custom $\rightarrow$ Git Taps $\rightarrow$ Cached Catalog). No recipes ship inside the binary; `lbmesh catalog sync` downloads the official catalog.
 4.  **OOM Capacity Advisor**: Proactive host and `podman machine` memory inspection to prevent out-of-memory container terminations before deployment.
 5.  **Embedded Carbon Dashboard**: A single self-contained binary shipping with an embedded React, TypeScript, and Vite single-page application served over local REST/SSE endpoints.
 6.  **Native MCP Server**: Fully compliant **Model Context Protocol (MCP)** server built natively into the core binary, enabling AI clients (Cursor, Claude Code, Windsurf) to query, list, and orchestrate container environments out-of-the-box.
@@ -54,16 +54,19 @@ Once installed, bootstrap your local environment in seconds:
 # 1. Initialize local directory structures (~/.lbmesh/) and default configuration
 lbmesh init
 
-# 2. View running containers, active scopes, and re-mapped port bindings
+# 2. Download the official recipe catalog (required before the first `lbmesh up`)
+lbmesh catalog sync
+
+# 3. View running containers, active scopes, and re-mapped port bindings
 lbmesh status
 
-# 3. List available recipes across your cascading catalog
+# 4. List available recipes across your cascading catalog
 lbmesh catalog list
 
-# 4. Deploy a recipe (e.g., PostgreSQL with embedded defaults)
-lbmesh up postgres
+# 5. Deploy a recipe (e.g., PostgreSQL from the synced catalog)
+lbmesh up postgresql
 
-# 5. Launch the embedded React + Carbon Web Dashboard
+# 6. Launch the embedded React + Carbon Web Dashboard
 lbmesh dashboard --port 8080
 ```
 

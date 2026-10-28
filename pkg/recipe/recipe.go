@@ -1,7 +1,7 @@
 // Package recipe implements the lbmesh recipe.v1.yaml format: a typed,
 // validated representation of a local service declaration plus a cascading
 // resolver that locates recipe definitions across the local workspace, user
-// custom templates, git taps, cached catalog, and Go-embedded defaults.
+// custom templates, git taps, and the cached catalog.
 package recipe
 
 import (

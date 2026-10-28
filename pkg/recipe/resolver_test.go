@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,12 +58,39 @@ func TestResolve_WorkspaceRecipeOnlyMatchesItsName(t *testing.T) {
 		t.Fatalf("Resolve(myapp) = %+v, %v; want local workspace", res, err)
 	}
 
-	res, err = Resolve("redis")
-	if err != nil {
-		t.Fatalf("Resolve(redis): %v", err)
+	// Nothing ships in the binary, so any other name is unknown until synced.
+	if _, err = Resolve("redis"); err == nil || !strings.Contains(err.Error(), "catalog sync") {
+		t.Fatalf("Resolve(redis) error = %v; want not-found hint to run catalog sync", err)
 	}
-	if res.Source != SourceEmbedded || res.Recipe.Metadata.Name != "redis" {
-		t.Fatalf("Resolve(redis) = %s from %v; want embedded redis", res.Recipe.Metadata.Name, res.Source)
+}
+
+func TestResolve_FindsCatalogRecipe(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	writeRecipe(t, filepath.Join(home, ".lbmesh", "catalog", "templates", "cache", "redis", "recipe.v1.yaml"), "redis")
+
+	res, err := Resolve("redis")
+	if err != nil || res.Source != SourceCatalog {
+		t.Fatalf("Resolve(redis) = %+v, %v; want cached catalog", res, err)
+	}
+}
+
+func TestResolve_InvalidCatalogRecipeReportsReason(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+	path := filepath.Join(home, ".lbmesh", "catalog", "templates", "gateway", "portkey", "recipe.v1.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("apiVersion: catalog/v1\nkind: Recipe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Resolve("portkey")
+	if err == nil || !strings.Contains(err.Error(), "invalid") || !strings.Contains(err.Error(), "unsupported recipe version") {
+		t.Fatalf("Resolve(portkey) error = %v; want invalid-recipe reason", err)
 	}
 }
 
@@ -75,28 +103,6 @@ func TestValidateName(t *testing.T) {
 	for _, bad := range []string{"", ".", "..", "../etc", "a/b", `a\b`, "red*", "x?"} {
 		if err := ValidateName(bad); err == nil {
 			t.Errorf("ValidateName(%q) = nil, want error", bad)
-		}
-	}
-}
-
-// Resolve silently skips embedded recipes that fail validation, so check every
-// built-in template explicitly.
-func TestEmbeddedRecipesResolve(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Chdir(t.TempDir())
-
-	names, err := EmbeddedNames()
-	if err != nil {
-		t.Fatalf("EmbeddedNames: %v", err)
-	}
-	for _, name := range names {
-		res, err := Resolve(name)
-		if err != nil {
-			t.Errorf("Resolve(%s): %v", name, err)
-			continue
-		}
-		if res.Source != SourceEmbedded || res.Recipe.Metadata.Name != name {
-			t.Errorf("Resolve(%s) = %s from %v; want embedded %s", name, res.Recipe.Metadata.Name, res.Source, name)
 		}
 	}
 }

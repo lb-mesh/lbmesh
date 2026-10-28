@@ -11,9 +11,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/lbmesh/lbmesh-v2/internal/version"
+	"github.com/lbmesh/lbmesh-v2/pkg/ai"
 	"github.com/lbmesh/lbmesh-v2/pkg/db"
 	"github.com/lbmesh/lbmesh-v2/pkg/machine"
-	"github.com/lbmesh/lbmesh-v2/pkg/recipe"
 )
 
 // ---------------------------------------------------------------------------
@@ -286,20 +286,14 @@ func (s *Server) handleRecipes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names, err := recipe.EmbeddedNames()
+	resolved, err := ai.DiscoverAllRecipes()
 	if err != nil {
-		errJSON(w, http.StatusInternalServerError, "listing embedded recipes: "+err.Error())
+		errJSON(w, http.StatusInternalServerError, "listing recipes: "+err.Error())
 		return
 	}
 
-	items := make([]RecipeItem, 0, len(names))
-	for _, name := range names {
-		res, err := recipe.Resolve(name)
-		if err != nil {
-			// Include a stub so the UI can still show the name.
-			items = append(items, RecipeItem{Name: name, Source: "embedded"})
-			continue
-		}
+	items := make([]RecipeItem, 0, len(resolved))
+	for _, res := range resolved {
 		items = append(items, RecipeItem{
 			Name:        res.Recipe.Metadata.Name,
 			Category:    res.Recipe.Metadata.Category,

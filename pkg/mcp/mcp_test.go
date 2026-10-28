@@ -321,7 +321,11 @@ func TestDown_AlreadyStoppedIsNotAnError(t *testing.T) {
 }
 
 func TestUp_Errors(t *testing.T) {
-	isolateHome(t)
+	home := isolateHome(t)
+	// "redis" must be a known recipe; seed it as a synced catalog entry.
+	if err := os.MkdirAll(filepath.Join(home, ".lbmesh", "catalog", "templates", "cache", "redis"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	database := newTestDB(t)
 	seedProject(t, database)
 	seed(t, database, `INSERT INTO projects (id, name, path) VALUES ('p2', 'empty', '/src/empty')`)
@@ -369,7 +373,7 @@ func TestCollectRecipes_DedupesByPriority(t *testing.T) {
 	if redis.source != "custom-override" {
 		t.Errorf("redis source = %q, want custom-override", redis.source)
 	}
-	if got := strings.Join(redis.shadowed, ","); got != "catalog-cache,embedded" {
-		t.Errorf("redis shadowed = %q, want catalog-cache,embedded", got)
+	if got := strings.Join(redis.shadowed, ","); got != "catalog-cache" {
+		t.Errorf("redis shadowed = %q, want catalog-cache", got)
 	}
 }

@@ -176,6 +176,19 @@ func deployContainer(
 
 	serviceID := uuid.New().String()
 
+	// port_allocations.service_id references services(id), so the service row
+	// must exist before any port is claimed. If the deploy fails, deleting the
+	// row cascades to its port allocations and frees the ports again.
+	if err := reserveService(database, serviceID, name, scopeStr, ctr.Image); err != nil {
+		return "", err
+	}
+	deployed := false
+	defer func() {
+		if !deployed {
+			releaseService(database, serviceID)
+		}
+	}()
+
 	// ── Allocate ports ───────────────────────────────────────────────────────
 	broker := ports.New(database)
 	portReqs := make([]ports.Request, len(ctr.Ports))
@@ -262,6 +275,7 @@ func deployContainer(
 		fmt.Fprintf(os.Stderr, "warning: persisting service state: %v\n", err)
 	}
 
+	deployed = true
 	fmt.Printf("  container id: %s\n", cid[:12])
 	printPortAllocations(portResults)
 
@@ -341,6 +355,28 @@ func buildPortMappings(results []ports.Result) (dockernat.PortSet, dockernat.Por
 // ---------------------------------------------------------------------------
 // State persistence
 // ---------------------------------------------------------------------------
+
+// reserveService inserts the services row in the 'created' state so that
+// dependent rows (port allocations) satisfy their foreign key.
+func reserveService(database *sql.DB, serviceID, name, scope, img string) error {
+	_, err := database.Exec(
+		`INSERT INTO services (id, name, scope, container_id, image, status)
+		 VALUES (?, ?, ?, '', ?, 'created')`,
+		serviceID, name, scope, img,
+	)
+	if err != nil {
+		return fmt.Errorf("registering service %q: %w", name, err)
+	}
+	return nil
+}
+
+// releaseService removes a service row after a failed deploy; its port
+// allocations are removed by ON DELETE CASCADE.
+func releaseService(database *sql.DB, serviceID string) {
+	if _, err := database.Exec(`DELETE FROM services WHERE id = ?`, serviceID); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: releasing service %s: %v\n", serviceID, err)
+	}
+}
 
 func persistService(database *sql.DB, serviceID, name, scope, containerID, img string) error {
 	_, err := database.Exec(

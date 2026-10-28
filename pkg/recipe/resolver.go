@@ -1,22 +1,13 @@
 package recipe
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/lbmesh/lbmesh-v2/pkg/dirs"
 )
-
-//go:embed default_catalog/*
-var defaultCatalog embed.FS
-
-// defaultCatalogDir is the embed root for the built-in recipe templates.
-const defaultCatalogDir = "default_catalog"
 
 // Source identifies where a resolved recipe originated.
 type Source int
@@ -33,8 +24,6 @@ const (
 	// SourceCatalog is a recipe from the cached upstream catalog under
 	// ~/.lbmesh/catalog.
 	SourceCatalog
-	// SourceEmbedded is a Go-embedded default template.
-	SourceEmbedded
 )
 
 // String returns a human-readable label for the source.
@@ -48,8 +37,6 @@ func (s Source) String() string {
 		return "git tap"
 	case SourceCatalog:
 		return "cached catalog"
-	case SourceEmbedded:
-		return "embedded default"
 	default:
 		return "unknown"
 	}
@@ -70,7 +57,9 @@ type ResolvedRecipe struct {
 //  2. User custom: ~/.lbmesh/custom/templates/<name>/recipe.v1.yaml
 //  3. Git taps: ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/recipe.v1.yaml
 //  4. Cached catalog: ~/.lbmesh/catalog/templates/<category>/<name>/recipe.v1.yaml
-//  5. Embedded defaults: default_catalog/<name>/recipe.v1.yaml
+//
+// No recipes ship inside the binary; run `lbmesh catalog sync` to populate the
+// cached catalog.
 func Resolve(name string) (*ResolvedRecipe, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
@@ -97,6 +86,10 @@ func Resolve(name string) (*ResolvedRecipe, error) {
 		}
 	}
 
+	// loadErr remembers the first recipe file that was found but could not be
+	// loaded, so the final error explains why instead of claiming "not found".
+	var loadErr error
+
 	// 3. Connected git taps, laid out by TapAdd as
 	//    ~/.lbmesh/taps/<host>/<owner>/<repo>/templates/<name>/recipe.v1.yaml
 	if path, err := firstMatch(filepath.Join(root, "taps", "*", "*", "*", "templates", name, "recipe.v1.yaml")); err == nil {
@@ -104,7 +97,7 @@ func Resolve(name string) (*ResolvedRecipe, error) {
 		if err2 == nil {
 			return &ResolvedRecipe{Recipe: *rec, Source: SourceTap, Path: path}, nil
 		}
-		_ = err
+		loadErr = err2
 	}
 
 	// 4. Cached upstream catalog: ~/.lbmesh/catalog/templates/<category>/<name>/recipe.v1.yaml
@@ -113,22 +106,15 @@ func Resolve(name string) (*ResolvedRecipe, error) {
 		if err2 == nil {
 			return &ResolvedRecipe{Recipe: *rec, Source: SourceCatalog, Path: path}, nil
 		}
-		_ = err
-	}
-
-	// 5. Go-embedded default catalog.
-	embedPath := filepath.ToSlash(filepath.Join(defaultCatalogDir, name, "recipe.v1.yaml"))
-	data, err := defaultCatalog.ReadFile(embedPath)
-	if err == nil {
-		var r Recipe
-		if err := yaml.Unmarshal(data, &r); err == nil {
-			if err := r.Validate(); err == nil {
-				return &ResolvedRecipe{Recipe: r, Source: SourceEmbedded, Path: embedPath}, nil
-			}
+		if loadErr == nil {
+			loadErr = err2
 		}
 	}
 
-	return nil, fmt.Errorf("recipe %q not found in any source (workspace, custom, taps, catalog, embedded)", name)
+	if loadErr != nil {
+		return nil, fmt.Errorf("recipe %q was found but is invalid: %w", name, loadErr)
+	}
+	return nil, fmt.Errorf("recipe %q not found in any source (workspace, custom, taps, catalog); run `lbmesh catalog sync` to fetch the upstream catalog", name)
 }
 
 // ValidateName reports whether name can be used as a recipe (or catalog
@@ -167,36 +153,4 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
-}
-
-// ---------------------------------------------------------------------------
-// Catalog listing helpers
-// ---------------------------------------------------------------------------
-
-// EmbeddedNames returns the sorted list of service names available in the
-// Go-embedded default catalog.
-func EmbeddedNames() ([]string, error) {
-	entries, err := defaultCatalog.ReadDir(defaultCatalogDir)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	sortStrings(names)
-	return names, nil
-}
-
-// sortStrings sorts a string slice in place.
-func sortStrings(s []string) {
-	for i := 0; i < len(s); i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[j] < s[i] {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
 }

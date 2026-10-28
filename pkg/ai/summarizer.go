@@ -24,24 +24,17 @@ type RecipeSummary struct {
 }
 
 // DiscoverAllRecipes finds and loads all available unique recipes across all sources:
-// workspace, user custom templates, taps, cached catalog, and embedded defaults.
+// workspace, user custom templates, taps, and the cached catalog.
 func DiscoverAllRecipes() ([]recipe.ResolvedRecipe, error) {
 	namesSet := make(map[string]struct{})
 
-	// 1. Embedded recipe names
-	if embedded, err := recipe.EmbeddedNames(); err == nil {
-		for _, name := range embedded {
-			namesSet[name] = struct{}{}
-		}
-	}
-
-	// 2. Local workspace recipe
+	// 1. Local workspace recipe
 	wsPath := filepath.Join(".lbmesh", "recipe.yaml")
 	if r, err := recipe.LoadFile(wsPath); err == nil && r.Metadata.Name != "" {
 		namesSet[r.Metadata.Name] = struct{}{}
 	}
 
-	// 3. User custom templates & cached catalog & taps
+	// 2. User custom templates & cached catalog & taps
 	if root, err := dirs.LocalRoot(); err == nil {
 		// Custom templates: ~/.lbmesh/custom/templates/<name>/
 		customDir := filepath.Join(root, "custom", "templates")
