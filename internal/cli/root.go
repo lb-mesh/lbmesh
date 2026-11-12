@@ -74,8 +74,13 @@ and exposes an embedded React + Carbon UI dashboard.`,
 	// Keep `lbmesh --version` consistent with `lbmesh version --short`.
 	root.SetVersionTemplate("lbmesh {{.Version}}\n")
 
+	// Replaced by newCompletionCmd, which installs the script instead of
+	// only printing it.
+	root.CompletionOptions.DisableDefaultCmd = true
+
 	root.AddCommand(
 		newVersionCmd(),
+		newCompletionCmd(),
 		newInitCmd(),
 		newUpCmd(),
 		newDownCmd(),
