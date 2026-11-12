@@ -409,7 +409,7 @@ function App() {
                         </div>
 
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          {proj.scope !== 'system' && (
+                          {proj.scope !== 'system' && !proj.id.startsWith('standalone-') && (
                             <>
                               <Button
                                 renderIcon={Play}

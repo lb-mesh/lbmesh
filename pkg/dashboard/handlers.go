@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -179,14 +180,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // ProjectItem is an entry in the projects list response.
 type ProjectItem struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Path      string        `json:"path"`
-	Network   string        `json:"network"`
-	Status    string        `json:"status"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Services  []ServiceItem `json:"services,omitempty"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Path       string        `json:"path"`
+	WorkingDir string        `json:"working_dir"`
+	Scope      string        `json:"scope"`
+	Network    string        `json:"network"`
+	Status     string        `json:"status"`
+	CreatedAt  time.Time     `json:"created_at"`
+	UpdatedAt  time.Time     `json:"updated_at"`
+	Services   []ServiceItem `json:"services"`
 }
 
 // ServiceItem is a container service belonging to a project.
@@ -197,6 +200,7 @@ type ServiceItem struct {
 	ContainerID string `json:"container_id"`
 	Image       string `json:"image"`
 	Status      string `json:"status"`
+	Ports       string `json:"ports"`
 }
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +223,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var projects []ProjectItem
+	projects := []ProjectItem{}
 	for rows.Next() {
 		var p ProjectItem
 		var createdAt, updatedAt any
@@ -228,9 +232,11 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		p.CreatedAt = db.ParseTimestamp(createdAt)
 		p.UpdatedAt = db.ParseTimestamp(updatedAt)
+		p.WorkingDir = p.Path
+		p.Scope = "project"
 
 		// Attach services for this project.
-		p.Services = s.servicesForProject(r, p.ID)
+		p.Services = s.servicesWhere(r, "s.project_id = ?", p.ID)
 		projects = append(projects, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -238,27 +244,59 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if projects == nil {
-		projects = []ProjectItem{}
+	// Services deployed via `lbmesh up` are not attached to a project row.
+	// Surface them as synthetic groups so running containers are visible.
+	standalone := s.servicesWhere(r, "(s.project_id IS NULL OR s.project_id = '')")
+	groups := map[string]*ProjectItem{}
+	for _, svc := range standalone {
+		g, ok := groups[svc.Scope]
+		if !ok {
+			g = &ProjectItem{
+				ID:       "standalone-" + svc.Scope,
+				Name:     "Standalone " + svc.Scope + " services",
+				Scope:    svc.Scope,
+				Status:   "active",
+				Services: []ServiceItem{},
+			}
+			if svc.Scope == "system" {
+				g.ID = "system-services"
+				g.Name = "Global shared stacks"
+			}
+			groups[svc.Scope] = g
+		}
+		g.Services = append(g.Services, svc)
 	}
+	scopes := make([]string, 0, len(groups))
+	for scope := range groups {
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	for _, scope := range scopes {
+		projects = append(projects, *groups[scope])
+	}
+
 	writeJSON(w, http.StatusOK, projects)
 }
 
-// servicesForProject returns the services belonging to projectID.
-func (s *Server) servicesForProject(r *http.Request, projectID string) []ServiceItem {
+// servicesWhere returns services matching the given SQL condition (which may
+// reference the services table as "s"), including a "host:container" summary
+// of their port allocations. The result is never nil.
+func (s *Server) servicesWhere(r *http.Request, cond string, args ...any) []ServiceItem {
+	items := []ServiceItem{}
 	rows, err := s.cfg.DB.QueryContext(r.Context(),
-		`SELECT id, name, scope, container_id, image, status
-		 FROM services WHERE project_id = ?
-		 ORDER BY name`, projectID)
+		`SELECT s.id, s.name, s.scope, s.container_id, s.image, s.status,
+		        COALESCE((SELECT group_concat(pa.host_port || ':' || pa.container_port, ', ')
+		                  FROM port_allocations pa WHERE pa.service_id = s.id), '')
+		 FROM services s WHERE `+cond+`
+		 ORDER BY s.name`, args...)
 	if err != nil {
-		return nil
+		return items
 	}
 	defer rows.Close()
 
-	var items []ServiceItem
 	for rows.Next() {
 		var svc ServiceItem
-		if err := rows.Scan(&svc.ID, &svc.Name, &svc.Scope, &svc.ContainerID, &svc.Image, &svc.Status); err != nil {
+		if err := rows.Scan(&svc.ID, &svc.Name, &svc.Scope, &svc.ContainerID, &svc.Image, &svc.Status, &svc.Ports); err != nil {
 			continue
 		}
 		items = append(items, svc)
@@ -315,6 +353,7 @@ func (s *Server) handleRecipes(w http.ResponseWriter, r *http.Request) {
 type PortItem struct {
 	ID            int64     `json:"id"`
 	ServiceID     string    `json:"service_id"`
+	ServiceName   string    `json:"service_name"`
 	ContainerPort int       `json:"container_port"`
 	HostPort      int       `json:"host_port"`
 	Protocol      string    `json:"protocol"`
@@ -332,9 +371,10 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.cfg.DB.QueryContext(r.Context(),
-		`SELECT id, service_id, container_port, host_port, protocol, allocated_at
-		 FROM port_allocations
-		 ORDER BY allocated_at DESC`)
+		`SELECT pa.id, pa.service_id, COALESCE(s.name, pa.service_id), pa.container_port, pa.host_port, pa.protocol, pa.allocated_at
+		 FROM port_allocations pa
+		 LEFT JOIN services s ON s.id = pa.service_id
+		 ORDER BY pa.allocated_at DESC`)
 	if err != nil {
 		errJSON(w, http.StatusInternalServerError, "querying port allocations: "+err.Error())
 		return
@@ -345,7 +385,7 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var p PortItem
 		var allocatedAt any
-		if err := rows.Scan(&p.ID, &p.ServiceID, &p.ContainerPort, &p.HostPort, &p.Protocol, &allocatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ServiceID, &p.ServiceName, &p.ContainerPort, &p.HostPort, &p.Protocol, &allocatedAt); err != nil {
 			continue
 		}
 		p.AllocatedAt = db.ParseTimestamp(allocatedAt)
