@@ -20,7 +20,7 @@ func NewCatalogCmd() *cobra.Command {
 		Long:  `catalog groups operations for browsing and synchronising recipe template catalogs.`,
 	}
 
-	cmd.AddCommand(newListCmd(), newSyncCmd())
+	cmd.AddCommand(newListCmd(), newSyncCmd(), newCleanCmd())
 	return cmd
 }
 
@@ -96,6 +96,31 @@ consolidated table of available recipes.`,
 			for _, r := range rows {
 				fmt.Printf("%-30s  %-14s  %s\n", r.name, r.category, r.source)
 			}
+			return nil
+		},
+	}
+}
+
+func newCleanCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "clean",
+		Short: "Remove the locally cached upstream catalog",
+		Long: `clean deletes the cached upstream catalog under ~/.lbmesh/catalog/,
+including the index and all downloaded recipes.
+
+Custom templates and git taps are not affected. Run ` + "`lbmesh catalog sync`" + `
+to download the catalog again.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, removed, err := recipe.CatalogClean()
+			if err != nil {
+				return err
+			}
+			if !removed {
+				fmt.Printf("No cached catalog found at %s — nothing to clean.\n", path)
+				return nil
+			}
+			fmt.Printf("Removed cached catalog at %s.\n", path)
 			return nil
 		},
 	}

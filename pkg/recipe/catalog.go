@@ -169,6 +169,30 @@ func LoadCatalogIndex() (*CatalogIndex, error) {
 	return &idx, nil
 }
 
+// CatalogClean removes the locally cached catalog (~/.lbmesh/catalog),
+// including the index and all downloaded recipe templates.  It returns the
+// path that was removed and whether anything existed to remove.  Custom
+// templates and taps are not touched.
+func CatalogClean() (string, bool, error) {
+	root, err := dirs.LocalRoot()
+	if err != nil {
+		return "", false, err
+	}
+
+	catalogDir := filepath.Join(root, "catalog")
+	if _, err := os.Stat(catalogDir); err != nil {
+		if os.IsNotExist(err) {
+			return catalogDir, false, nil
+		}
+		return catalogDir, false, fmt.Errorf("checking catalog directory: %w", err)
+	}
+
+	if err := os.RemoveAll(catalogDir); err != nil {
+		return catalogDir, false, fmt.Errorf("removing catalog directory %s: %w", catalogDir, err)
+	}
+	return catalogDir, true, nil
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
