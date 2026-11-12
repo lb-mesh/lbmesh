@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,8 +18,9 @@ func newVersionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the lbmesh version and build information",
-		Long: `version prints the lbmesh release version together with the git commit,
-build date, Go toolchain, and platform the binary was built for.`,
+		Long: `version prints the lbmesh release version together with the build date,
+Go toolchain, and platform the binary was built for. Use -o json for the
+full build information, including the git commit.`,
 		Args: cobra.NoArgs,
 		// Reporting the version must not create ~/.lbmesh or open the state
 		// database, so override the root command's setup hook.
@@ -49,7 +51,17 @@ func printVersion(out io.Writer, info version.Info, short bool, output string) e
 		_, err := fmt.Fprintln(out, info.Version)
 		return err
 	}
-	_, err := fmt.Fprintf(out, "lbmesh %s\n  commit:   %s\n  built:    %s\n  go:       %s\n  platform: %s\n",
-		info.Version, info.Commit, info.Date, info.GoVersion, info.Platform)
+	_, err := fmt.Fprintf(out, "lbmesh %s\n  built:    %s\n  go:       %s\n  platform: %s\n",
+		info.Version, readableDate(info.Date), info.GoVersion, info.Platform)
 	return err
+}
+
+// readableDate renders an RFC 3339 build timestamp as "Jan 2, 2006".
+// Values that don't parse (e.g. "unknown") are returned unchanged.
+func readableDate(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return s
+	}
+	return t.UTC().Format("Jan 2, 2006")
 }

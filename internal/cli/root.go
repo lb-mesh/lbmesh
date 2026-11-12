@@ -40,6 +40,14 @@ func printBanner() {
 	fmt.Print(ansiGreen + bannerText + ansiReset + "\n")
 }
 
+// Help group IDs for the root command.
+const (
+	groupCore    = "core"
+	groupRecipe  = "recipe"
+	groupTools   = "tools"
+	groupUtility = "utility"
+)
+
 // NewRootCmd constructs and returns the root lbmesh Cobra command.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -78,19 +86,41 @@ and exposes an embedded React + Carbon UI dashboard.`,
 	// only printing it.
 	root.CompletionOptions.DisableDefaultCmd = true
 
+	// Keep commands in the order they are registered rather than alphabetical.
+	cobra.EnableCommandSorting = false
+
+	root.AddGroup(
+		&cobra.Group{ID: groupCore, Title: "Core Commands:"},
+		&cobra.Group{ID: groupRecipe, Title: "Recipe Commands:"},
+		&cobra.Group{ID: groupTools, Title: "Interface & Tooling Commands:"},
+		&cobra.Group{ID: groupUtility, Title: "Utility Commands:"},
+	)
+	root.SetHelpCommandGroupID(groupUtility)
+
+	// withGroup assigns a help group to a command and returns it.
+	withGroup := func(c *cobra.Command, id string) *cobra.Command {
+		c.GroupID = id
+		return c
+	}
+
+	// Ungrouped commands (version) are listed last under "Additional Commands:".
 	root.AddCommand(
+		withGroup(newInitCmd(), groupCore),
+		withGroup(newStatusCmd(), groupCore),
+		withGroup(catalog.NewCatalogCmd(), groupCore),
+		withGroup(tap.NewTapCmd(), groupCore),
+
+		withGroup(recipe.NewRecipeCmd(), groupRecipe),
+		withGroup(newUpCmd(), groupRecipe),
+		withGroup(newDownCmd(), groupRecipe),
+
+		withGroup(newDashboardCmd(), groupTools),
+		withGroup(newAskCmd(), groupTools),
+		withGroup(NewMcpCmd(), groupTools),
+
+		withGroup(newCompletionCmd(), groupUtility),
+
 		newVersionCmd(),
-		newCompletionCmd(),
-		newInitCmd(),
-		newUpCmd(),
-		newDownCmd(),
-		newStatusCmd(),
-		newDashboardCmd(),
-		newAskCmd(),
-		NewMcpCmd(),
-		catalog.NewCatalogCmd(),
-		tap.NewTapCmd(),
-		recipe.NewRecipeCmd(),
 	)
 
 	return root

@@ -23,10 +23,13 @@ func TestPrintVersion_Text(t *testing.T) {
 	if err := printVersion(&out, testInfo, false, "text"); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"lbmesh 1.2.3", "abc1234", "2026-10-19T19:00:00Z", "go1.26.4", "darwin/arm64"} {
+	for _, want := range []string{"lbmesh 1.2.3", "Oct 19, 2026", "go1.26.4", "darwin/arm64"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output missing %q:\n%s", want, out.String())
 		}
+	}
+	if strings.Contains(out.String(), "abc1234") {
+		t.Errorf("text output should not include the commit:\n%s", out.String())
 	}
 }
 
