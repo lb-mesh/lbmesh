@@ -51,6 +51,11 @@ containers via Docker or Podman, manages isolated scoped bridge networks,
 and exposes an embedded React + Carbon UI dashboard.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// A runnable root ensures PersistentPreRunE (and thus the banner) fires
+		// when lbmesh is invoked with no sub-command.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 		// Print the banner then ensure ~/.lbmesh dir tree and state DB migrations
 		// run before every command.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
