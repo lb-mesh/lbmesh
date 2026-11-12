@@ -23,8 +23,14 @@ Go toolchain, and platform the binary was built for. Use -o json for the
 full build information, including the git commit.`,
 		Args: cobra.NoArgs,
 		// Reporting the version must not create ~/.lbmesh or open the state
-		// database, so override the root command's setup hook.
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
+		// database, so override the root command's setup hook. Only the banner
+		// is kept, and not for --short or -o json, which are meant to be parsed.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if !short && output != "json" {
+				printBanner()
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return printVersion(cmd.OutOrStdout(), version.Get(), short, output)
 		},
