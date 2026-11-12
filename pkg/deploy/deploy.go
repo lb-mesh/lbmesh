@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	dockernat "github.com/docker/go-connections/nat"
@@ -280,25 +278,6 @@ func deployContainer(
 	printPortAllocations(portResults)
 
 	return cid, nil
-}
-
-// ---------------------------------------------------------------------------
-// Image pulling
-// ---------------------------------------------------------------------------
-
-func ensureImage(c *client.Client, ref string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), containerOpTimeout)
-	defer cancel()
-
-	fmt.Printf("Pulling image %q (skipped if already present)...\n", ref)
-	rc, err := c.ImagePull(ctx, ref, image.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("pulling image %q: %w", ref, err)
-	}
-	defer rc.Close()
-	// Consume the pull stream so progress is shown and the pull completes.
-	_, _ = io.Copy(os.Stdout, rc)
-	return nil
 }
 
 // ---------------------------------------------------------------------------

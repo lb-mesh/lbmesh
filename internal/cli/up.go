@@ -44,6 +44,7 @@ network, allocating host ports, and starting all required containers.`,
 		"override environment variables (KEY=VALUE), repeatable")
 	cmd.Flags().StringSliceVar(&addons, "with", nil,
 		"also deploy optional recipe addons, e.g. --with admin for a database web UI")
+	// TODO: Add --pull flag (always | missing | never) for configurable image pull policy.
 
 	return cmd
 }
